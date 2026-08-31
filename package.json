@@ -7,7 +7,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/your-name/locale-trace.git"
+    "url": "https://github.com/lwm-xiaoxia/locale-trace.git"
   },
   "engines": {
     "vscode": "^1.85.0"
