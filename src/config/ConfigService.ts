@@ -1,0 +1,131 @@
+import * as vscode from 'vscode';
+import { DisposableStore } from '../util/disposable';
+
+export interface LocaleTraceConfig {
+  enabled: boolean;
+  localeDirs: string[];
+  localeFileGlob: string;
+  displayLocale: string;
+  sourceLocale: string;
+  keyStyle: 'auto' | 'nested' | 'flat';
+  translationFunctions: string[];
+  inlayHints: {
+    enabled: boolean;
+    maxLength: number;
+    showWhenMissing: boolean;
+  };
+  languageSelector: string[];
+  search: {
+    enhanceCtrlF: boolean;
+    maxKeysPerSearch: number;
+  };
+}
+
+const SECTION = 'localeTrace';
+
+/**
+ * 读取并缓存 localeTrace.* 配置，配置变化时对外广播。
+ * 提供「结构性配置变化」与「显示性配置变化」的区分，避免每次都重建索引。
+ */
+export class ConfigService {
+  private readonly store = new DisposableStore();
+  private current: LocaleTraceConfig;
+
+  private readonly structuralEmitter = new vscode.EventEmitter<void>();
+  /** 影响索引构建的配置变化（目录、glob、keyStyle）。订阅方应重建索引。 */
+  readonly onDidChangeStructural = this.structuralEmitter.event;
+
+  private readonly displayEmitter = new vscode.EventEmitter<void>();
+  /** 仅影响展示/搜索的配置变化（displayLocale、气泡长度、翻译函数名等）。 */
+  readonly onDidChangeDisplay = this.displayEmitter.event;
+
+  constructor() {
+    this.current = read();
+    this.store.add(this.structuralEmitter);
+    this.store.add(this.displayEmitter);
+    this.store.add(
+      vscode.workspace.onDidChangeConfiguration((e) => {
+        if (!e.affectsConfiguration(SECTION)) {
+          return;
+        }
+        const prev = this.current;
+        this.current = read();
+        if (isStructuralChange(prev, this.current)) {
+          this.structuralEmitter.fire();
+        }
+        this.displayEmitter.fire();
+      }),
+    );
+  }
+
+  get value(): LocaleTraceConfig {
+    return this.current;
+  }
+
+  /** 持久化 displayLocale（切换显示语种命令用）。 */
+  async setDisplayLocale(locale: string): Promise<void> {
+    await vscode.workspace
+      .getConfiguration(SECTION)
+      .update('displayLocale', locale, vscode.ConfigurationTarget.Workspace);
+  }
+
+  async setInlayHintsEnabled(enabled: boolean): Promise<void> {
+    await vscode.workspace
+      .getConfiguration(SECTION)
+      .update('inlayHints.enabled', enabled, vscode.ConfigurationTarget.Workspace);
+  }
+
+  dispose(): void {
+    this.store.dispose();
+  }
+}
+
+function read(): LocaleTraceConfig {
+  const c = vscode.workspace.getConfiguration(SECTION);
+  return {
+    enabled: c.get('enabled', true),
+    localeDirs: c.get('localeDirs', []),
+    localeFileGlob: c.get(
+      'localeFileGlob',
+      '**/{locale,locales,lang,langs,i18n,translation,translations}/**/*.{json,json5,yaml,yml,js,ts,mjs,cjs}',
+    ),
+    displayLocale: c.get('displayLocale', ''),
+    sourceLocale: c.get('sourceLocale', ''),
+    keyStyle: c.get('keyStyle', 'auto'),
+    translationFunctions: c.get('translationFunctions', [
+      't',
+      '$t',
+      'i18n.t',
+      'i18n.global.t',
+      'translate',
+      '$translate',
+    ]),
+    inlayHints: {
+      enabled: c.get('inlayHints.enabled', true),
+      maxLength: c.get('inlayHints.maxLength', 40),
+      showWhenMissing: c.get('inlayHints.showWhenMissing', true),
+    },
+    languageSelector: c.get('languageSelector', [
+      'javascript',
+      'javascriptreact',
+      'typescript',
+      'typescriptreact',
+      'vue',
+      'html',
+      'svelte',
+    ]),
+    search: {
+      enhanceCtrlF: c.get('search.enhanceCtrlF', true),
+      maxKeysPerSearch: c.get('search.maxKeysPerSearch', 50),
+    },
+  };
+}
+
+function isStructuralChange(a: LocaleTraceConfig, b: LocaleTraceConfig): boolean {
+  return (
+    a.enabled !== b.enabled ||
+    a.localeFileGlob !== b.localeFileGlob ||
+    a.keyStyle !== b.keyStyle ||
+    JSON.stringify(a.localeDirs) !== JSON.stringify(b.localeDirs)
+  );
+}

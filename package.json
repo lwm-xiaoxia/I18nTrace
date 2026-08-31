@@ -1,0 +1,187 @@
+{
+  "name": "locale-trace",
+  "displayName": "LocaleTrace",
+  "description": "在代码中常驻显示 i18n 译文，并支持按译文反查 key（增强 Ctrl+F）",
+  "version": "0.1.0",
+  "publisher": "locale-trace",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-name/locale-trace.git"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other",
+    "Visualization"
+  ],
+  "keywords": [
+    "i18n",
+    "internationalization",
+    "vue-i18n",
+    "react-i18next",
+    "inlay hints"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "localeTrace.find",
+        "title": "LocaleTrace: 按译文查找（增强 Ctrl+F）"
+      },
+      {
+        "command": "localeTrace.switchDisplayLocale",
+        "title": "LocaleTrace: 切换显示语种"
+      },
+      {
+        "command": "localeTrace.reindex",
+        "title": "LocaleTrace: 重建索引"
+      },
+      {
+        "command": "localeTrace.toggleInlayHints",
+        "title": "LocaleTrace: 开关译文气泡"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "localeTrace.find",
+        "key": "ctrl+f",
+        "mac": "cmd+f",
+        "when": "editorTextFocus && !findWidgetVisible && !isInEmbeddedEditor && config.localeTrace.search.enhanceCtrlF"
+      }
+    ],
+    "configuration": {
+      "title": "LocaleTrace",
+      "properties": {
+        "localeTrace.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "启用 LocaleTrace（关闭后不构建索引、不显示气泡）。"
+        },
+        "localeTrace.localeDirs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "手动指定语言文件目录或 glob（相对工作区根）。非空时完全以此为准，跳过自动检测。"
+        },
+        "localeTrace.localeFileGlob": {
+          "type": "string",
+          "default": "**/{locale,locales,lang,langs,i18n,translation,translations}/**/*.{json,json5,yaml,yml,js,ts,mjs,cjs}",
+          "description": "自动检测语言文件使用的 glob。"
+        },
+        "localeTrace.displayLocale": {
+          "type": "string",
+          "default": "",
+          "description": "气泡显示的语种代码（如 zh-CN）。留空则自动选择（优先中文，其次第一个）。"
+        },
+        "localeTrace.sourceLocale": {
+          "type": "string",
+          "default": "",
+          "description": "源语种代码，用于反查与校验。留空自动推断。"
+        },
+        "localeTrace.keyStyle": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "nested",
+            "flat"
+          ],
+          "default": "auto",
+          "description": "语言文件 key 结构：auto 自动，nested 嵌套对象，flat 扁平点号 key。"
+        },
+        "localeTrace.translationFunctions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "t",
+            "$t",
+            "i18n.t",
+            "i18n.global.t",
+            "translate",
+            "$translate"
+          ],
+          "description": "识别为翻译函数的名称（支持点号形式，如 i18n.t）。"
+        },
+        "localeTrace.inlayHints.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "显示译文 Inlay Hint 气泡。"
+        },
+        "localeTrace.inlayHints.maxLength": {
+          "type": "number",
+          "default": 40,
+          "minimum": 4,
+          "description": "气泡译文超过该长度时截断。"
+        },
+        "localeTrace.inlayHints.showWhenMissing": {
+          "type": "boolean",
+          "default": true,
+          "description": "key 在语言文件中找不到时，显示 ⚠️ 提示气泡。"
+        },
+        "localeTrace.languageSelector": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "javascript",
+            "javascriptreact",
+            "typescript",
+            "typescriptreact",
+            "vue",
+            "html",
+            "svelte"
+          ],
+          "description": "启用译文气泡与增强查找的语言（languageId）。"
+        },
+        "localeTrace.search.enhanceCtrlF": {
+          "type": "boolean",
+          "default": true,
+          "description": "把编辑器内 Ctrl+F 增强为「按译文查找」（无译文命中时等价普通查找）。关闭后 Ctrl+F 完全恢复原生。"
+        },
+        "localeTrace.search.maxKeysPerSearch": {
+          "type": "number",
+          "default": 50,
+          "description": "单次增强查找最多纳入的 key 数量，超出则截断并提示。"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "pnpm run build",
+    "build": "node esbuild.js --production",
+    "watch": "node esbuild.js --watch",
+    "compile-tests": "tsc -p ./tsconfig.test.json",
+    "pretest": "pnpm run compile-tests && pnpm run build",
+    "test": "vscode-test",
+    "lint": "eslint src --ext ts",
+    "typecheck": "tsc --noEmit -p ./tsconfig.json",
+    "package": "vsce package --no-dependencies"
+  },
+  "dependencies": {
+    "json5": "^2.2.3",
+    "yaml": "^2.6.1"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.9",
+    "@types/node": "^20.17.6",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^8.15.0",
+    "@typescript-eslint/parser": "^8.15.0",
+    "@vscode/test-cli": "^0.0.10",
+    "@vscode/test-electron": "^2.4.1",
+    "@vscode/vsce": "^3.9.2",
+    "esbuild": "^0.24.0",
+    "eslint": "^8.57.1",
+    "mocha": "^10.8.2",
+    "typescript": "^5.6.3"
+  }
+}

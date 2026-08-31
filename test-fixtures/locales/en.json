@@ -1,0 +1,13 @@
+{
+  "user": {
+    "name": "User name",
+    "email": "Email address",
+    "deleteSuccess": "Deleted successfully",
+    "deleteConfirm": "Delete this user?"
+  },
+  "common": {
+    "ok": "OK",
+    "cancel": "Cancel",
+    "save": "Save"
+  }
+}

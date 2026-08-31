@@ -1,0 +1,8 @@
+user:
+  name: Nom d'utilisateur
+  email: Adresse e-mail
+  deleteSuccess: Suppression réussie
+common:
+  ok: OK
+  cancel: Annuler
+  save: Enregistrer

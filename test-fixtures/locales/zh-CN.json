@@ -1,0 +1,13 @@
+{
+  "user": {
+    "name": "用户名",
+    "email": "邮箱地址",
+    "deleteSuccess": "删除成功",
+    "deleteConfirm": "确认删除该用户？"
+  },
+  "common": {
+    "ok": "确定",
+    "cancel": "取消",
+    "save": "保存"
+  }
+}
