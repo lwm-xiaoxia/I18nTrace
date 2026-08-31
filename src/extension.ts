@@ -6,7 +6,7 @@ import { LocaleParserRegistry } from './adapters/locale/registry';
 import { FrameworkAdapterRegistry } from './adapters/framework/registry';
 import { IndexManager } from './core/IndexManager';
 import { LocaleWatcher } from './watch/LocaleWatcher';
-import { LocaleTraceInlayHintsProvider } from './features/InlayHintsProvider';
+import { I18nTraceInlayHintsProvider } from './features/InlayHintsProvider';
 import { FindEnhancer } from './features/FindEnhancer';
 import { registerCommands } from './features/commands';
 
@@ -25,7 +25,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // Inlay Hint Provider
   const inlayProvider = store.add(
-    new LocaleTraceInlayHintsProvider(indexManager, config, frameworkAdapters),
+    new I18nTraceInlayHintsProvider(indexManager, config, frameworkAdapters),
   );
   // 按 languageId 匹配；另加 glob 兜底，宿主未装 Volar 时 .vue/.svelte 也能触发
   const selector: vscode.DocumentSelector = [

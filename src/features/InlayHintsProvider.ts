@@ -10,7 +10,7 @@ import { DisposableStore } from '../util/disposable';
  * 命中 key → 显示译文（截断）；找不到 key 且开启提示 → 显示 ⚠️。
  * 点击气泡跳转到语言文件中该 key 的定义位置。
  */
-export class LocaleTraceInlayHintsProvider implements vscode.InlayHintsProvider {
+export class I18nTraceInlayHintsProvider implements vscode.InlayHintsProvider {
   private readonly store = new DisposableStore();
   private readonly changeEmitter = new vscode.EventEmitter<void>();
   readonly onDidChangeInlayHints = this.changeEmitter.event;
@@ -60,7 +60,7 @@ export class LocaleTraceInlayHintsProvider implements vscode.InlayHintsProvider 
           );
           hint.paddingLeft = true;
           hint.tooltip = new vscode.MarkdownString(
-            `LocaleTrace：语言文件中未找到 key \`${call.key}\``,
+            `I18nTrace：语言文件中未找到 key \`${call.key}\``,
           );
           hints.push(hint);
         }

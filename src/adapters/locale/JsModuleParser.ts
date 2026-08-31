@@ -33,7 +33,7 @@ export class JsModuleParser implements LocaleParser {
         data = JSON5.parse(stripTsSyntax(objectLiteral));
       } catch (err) {
         console.warn(
-          `[LocaleTrace] JS/TS 语言文件无法静态解析: ${uri.fsPath}`,
+          `[I18nTrace] JS/TS 语言文件无法静态解析: ${uri.fsPath}`,
           (err as Error).message,
         );
         return [];

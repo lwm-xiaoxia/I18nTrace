@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
-import { LocaleTraceConfig } from './ConfigService';
+import { I18nTraceConfig } from './ConfigService';
 import { LocaleParserRegistry } from '../adapters/locale/registry';
 
 export interface LocaleFile {
@@ -41,7 +41,7 @@ const LOCALE_CODE_RE = /^[a-z]{2,3}(?:[-_][a-z]{2,4}){0,2}$/i;
 export class ProjectScanner {
   constructor(private readonly parsers: LocaleParserRegistry) {}
 
-  async scan(config: LocaleTraceConfig): Promise<LocaleFile[]> {
+  async scan(config: I18nTraceConfig): Promise<LocaleFile[]> {
     const folders = vscode.workspace.workspaceFolders ?? [];
     if (folders.length === 0) {
       return [];
@@ -72,7 +72,7 @@ export class ProjectScanner {
 
   private async findInFolder(
     folder: vscode.WorkspaceFolder,
-    config: LocaleTraceConfig,
+    config: I18nTraceConfig,
   ): Promise<vscode.Uri[]> {
     const exts = `{${this.parsers.supportedExtensions.join(',')}}`;
 

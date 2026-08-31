@@ -60,7 +60,7 @@ export class IndexManager {
         await this.parseInto(file);
       }
       console.log(
-        `[LocaleTrace] 索引完成：${files.length} 个语言文件，locale = [${this.index
+        `[I18nTrace] 索引完成：${files.length} 个语言文件，locale = [${this.index
           .getLocales()
           .join(', ')}]`,
       );
@@ -106,7 +106,7 @@ export class IndexManager {
       const entries = parser.parse(file.uri, text, file.locale);
       this.index.replaceFile(file.uri, entries);
     } catch (err) {
-      console.warn(`[LocaleTrace] 读取语言文件失败: ${file.uri.fsPath}`, (err as Error).message);
+      console.warn(`[I18nTrace] 读取语言文件失败: ${file.uri.fsPath}`, (err as Error).message);
       this.index.replaceFile(file.uri, []);
     }
   }

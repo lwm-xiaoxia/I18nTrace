@@ -2,7 +2,7 @@ import * as assert from 'assert';
 import * as vscode from 'vscode';
 import * as path from 'path';
 
-const EXT_ID = 'locale-trace.locale-trace';
+const EXT_ID = 'i18n-trace.i18n-trace';
 
 function fixture(rel: string): vscode.Uri {
   const folder = vscode.workspace.workspaceFolders![0];
@@ -20,7 +20,7 @@ describe('集成：激活 + Inlay Hint + 增强查找', function () {
     const ext = vscode.extensions.getExtension(EXT_ID);
     assert.ok(ext, `未找到扩展 ${EXT_ID}`);
     await ext!.activate();
-    await vscode.commands.executeCommand('localeTrace.reindex');
+    await vscode.commands.executeCommand('i18nTrace.reindex');
     await delay(500);
   });
 
@@ -55,9 +55,9 @@ describe('集成：激活 + Inlay Hint + 增强查找', function () {
     assert.ok(labels.some((l) => l.includes('确认删除')), 'keypath=user.deleteConfirm');
   });
 
-  it('localeTrace.find 命令已注册', async () => {
+  it('i18nTrace.find 命令已注册', async () => {
     const all = await vscode.commands.getCommands(true);
-    assert.ok(all.includes('localeTrace.find'));
-    assert.ok(all.includes('localeTrace.switchDisplayLocale'));
+    assert.ok(all.includes('i18nTrace.find'));
+    assert.ok(all.includes('i18nTrace.switchDisplayLocale'));
   });
 });

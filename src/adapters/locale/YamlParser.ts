@@ -15,11 +15,11 @@ export class YamlParser implements LocaleParser {
     try {
       doc = parseDocument(text, { keepSourceTokens: false });
     } catch (err) {
-      console.warn(`[LocaleTrace] YAML 解析失败: ${uri.fsPath}`, (err as Error).message);
+      console.warn(`[I18nTrace] YAML 解析失败: ${uri.fsPath}`, (err as Error).message);
       return [];
     }
     if (doc.errors.length > 0) {
-      console.warn(`[LocaleTrace] YAML 存在错误: ${uri.fsPath}`, doc.errors[0].message);
+      console.warn(`[I18nTrace] YAML 存在错误: ${uri.fsPath}`, doc.errors[0].message);
     }
 
     const entries: LocaleEntry[] = [];

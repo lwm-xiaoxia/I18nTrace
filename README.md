@@ -1,4 +1,4 @@
-# LocaleTrace
+# I18nTrace
 
 在 VS Code 里**不修改源码**地常驻显示 i18n 译文，并把 `Ctrl+F` 增强为「按译文反查 key」。
 
@@ -14,7 +14,7 @@ $t('user.deleteSuccess')  删除成功
 ```
 
 - 不修改源码，纯 Inlay Hint 渲染，跟随 VS Code 原生风格
-- 支持切换显示语种：命令面板 `LocaleTrace: 切换显示语种`
+- 支持切换显示语种：命令面板 `I18nTrace: 切换显示语种`
 - 语言文件修改后自动刷新（含未保存的编辑）
 - 找不到 key 时显示 `⚠️ <key>`（可关）
 - `Ctrl/Cmd` + 点击气泡，跳转到语言文件中该 key 的定义位置
@@ -34,10 +34,10 @@ Ctrl+F 输入「删除成功」 → 跳到 t('user.deleteSuccess')
 - 命中后由 **VS Code 原生查找框**接管：`Enter` / `Shift+Enter` 前后切换、「高亮全部」、正则开关等全部原生行为
 - **完整保留普通搜索**：输入的词没有匹配到任何译文时，等价于普通 `Ctrl+F` 文本查找
 - 输入框右上角有「普通查找」按钮，可强制跳过译文解析
-- 不想要增强？把 `localeTrace.search.enhanceCtrlF` 设为 `false`，`Ctrl+F` 立即恢复原生
+- 不想要增强？把 `i18nTrace.search.enhanceCtrlF` 设为 `false`，`Ctrl+F` 立即恢复原生
 
 > **实现说明**：VS Code 稳定 API 无法拦截或扩展原生查找框（查找框只搜文本缓冲区，
-> 不搜 Inlay Hint）。LocaleTrace 的做法是：用一个轻量输入框收集短语 →
+> 不搜 Inlay Hint）。I18nTrace 的做法是：用一个轻量输入框收集短语 →
 > 通过索引把「译文」解析成一组 key → 生成匹配这些 key 字面量的正则 →
 > 调用官方命令 `editor.actions.findWithArgs` 交回原生查找框。因此增强与原生搜索能力共存，
 > 代价只是多一次「打开输入框 + 回车」。
@@ -55,7 +55,7 @@ Ctrl+F 输入「删除成功」 → 跳到 t('user.deleteSuccess')
 | Angular `$localize` / ngx-translate、`intl.formatMessage` | ⏳ 计划中（Adapter 扩展点已预留） |
 
 **识别的调用形式**：`t('k')`、`$t("k")`、`i18n.t(\`k\`)`、`i18n.global.t('k')`、`translate('k')`，
-以及模板 / JSX / 属性 / 组件参数等位置。可通过 `localeTrace.translationFunctions` 增补函数名。
+以及模板 / JSX / 属性 / 组件参数等位置。可通过 `i18nTrace.translationFunctions` 增补函数名。
 
 **动态 key**（`t(\`a.${x}\`)`、`t('a.' + x)`、`t(variable)`）无法可靠解析，**直接跳过，不误判**。
 
@@ -73,26 +73,26 @@ Ctrl+F 输入「删除成功」 → 跳到 t('user.deleteSuccess')
 
 | 键 | 默认 | 说明 |
 |---|---|---|
-| `localeTrace.enabled` | `true` | 总开关 |
-| `localeTrace.localeDirs` | `[]` | 手动指定语言文件目录 / glob；非空时完全以此为准 |
-| `localeTrace.localeFileGlob` | 见设置 | 自动检测语言文件的 glob |
-| `localeTrace.displayLocale` | `""` | 气泡显示语种；留空自动选（优先中文） |
-| `localeTrace.sourceLocale` | `""` | 源语种 |
-| `localeTrace.keyStyle` | `"auto"` | `auto` / `nested` / `flat` |
-| `localeTrace.translationFunctions` | `["t","$t","i18n.t","i18n.global.t","translate","$translate"]` | 识别为翻译函数的名称 |
-| `localeTrace.inlayHints.enabled` | `true` | 显示译文气泡 |
-| `localeTrace.inlayHints.maxLength` | `40` | 气泡译文截断长度 |
-| `localeTrace.inlayHints.showWhenMissing` | `true` | 缺失 key 显示 ⚠️ |
-| `localeTrace.languageSelector` | 见设置 | 生效的语言（languageId） |
-| `localeTrace.search.enhanceCtrlF` | `true` | Ctrl+F 增强开关 |
-| `localeTrace.search.maxKeysPerSearch` | `50` | 单次增强查找最多纳入的 key 数 |
+| `i18nTrace.enabled` | `true` | 总开关 |
+| `i18nTrace.localeDirs` | `[]` | 手动指定语言文件目录 / glob；非空时完全以此为准 |
+| `i18nTrace.localeFileGlob` | 见设置 | 自动检测语言文件的 glob |
+| `i18nTrace.displayLocale` | `""` | 气泡显示语种；留空自动选（优先中文） |
+| `i18nTrace.sourceLocale` | `""` | 源语种 |
+| `i18nTrace.keyStyle` | `"auto"` | `auto` / `nested` / `flat` |
+| `i18nTrace.translationFunctions` | `["t","$t","i18n.t","i18n.global.t","translate","$translate"]` | 识别为翻译函数的名称 |
+| `i18nTrace.inlayHints.enabled` | `true` | 显示译文气泡 |
+| `i18nTrace.inlayHints.maxLength` | `40` | 气泡译文截断长度 |
+| `i18nTrace.inlayHints.showWhenMissing` | `true` | 缺失 key 显示 ⚠️ |
+| `i18nTrace.languageSelector` | 见设置 | 生效的语言（languageId） |
+| `i18nTrace.search.enhanceCtrlF` | `true` | Ctrl+F 增强开关 |
+| `i18nTrace.search.maxKeysPerSearch` | `50` | 单次增强查找最多纳入的 key 数 |
 
 ## 命令
 
-- `LocaleTrace: 按译文查找（增强 Ctrl+F）` — `localeTrace.find`
-- `LocaleTrace: 切换显示语种` — `localeTrace.switchDisplayLocale`
-- `LocaleTrace: 重建索引` — `localeTrace.reindex`
-- `LocaleTrace: 开关译文气泡` — `localeTrace.toggleInlayHints`
+- `I18nTrace: 按译文查找（增强 Ctrl+F）` — `i18nTrace.find`
+- `I18nTrace: 切换显示语种` — `i18nTrace.switchDisplayLocale`
+- `I18nTrace: 重建索引` — `i18nTrace.reindex`
+- `I18nTrace: 开关译文气泡` — `i18nTrace.toggleInlayHints`
 
 ## 架构
 

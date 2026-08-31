@@ -25,7 +25,7 @@ export class FindEnhancer {
     private readonly adapters: FrameworkAdapterRegistry,
   ) {
     this.store.add(
-      vscode.commands.registerCommand('localeTrace.find', () => this.run()),
+      vscode.commands.registerCommand('i18nTrace.find', () => this.run()),
     );
   }
 
@@ -49,7 +49,7 @@ export class FindEnhancer {
     const seed = editor.document.getText(editor.selection).split('\n')[0] ?? '';
 
     const input = vscode.window.createInputBox();
-    input.title = 'LocaleTrace 查找';
+    input.title = 'I18nTrace 查找';
     input.placeholder = '输入译文或普通关键字，Enter 查找';
     input.prompt = '命中译文 → 跳到对应 key 调用；未命中 → 普通查找';
     input.value = seed;
@@ -125,7 +125,7 @@ export class FindEnhancer {
       );
       if (globalHits.length > 0) {
         void vscode.window.showInformationMessage(
-          `LocaleTrace：「${phrase}」对应的 key 不在当前文件，已按普通文本查找。`,
+          `I18nTrace：「${phrase}」对应的 key 不在当前文件，已按普通文本查找。`,
         );
       }
       await this.nativeFind(phrase, false);
@@ -137,7 +137,7 @@ export class FindEnhancer {
     if (keys.length > max) {
       keys = keys.slice(0, max);
       void vscode.window.showInformationMessage(
-        `LocaleTrace：命中 ${hitKeys.length} 个 key，仅纳入前 ${max} 个。可缩小搜索词。`,
+        `I18nTrace：命中 ${hitKeys.length} 个 key，仅纳入前 ${max} 个。可缩小搜索词。`,
       );
     }
 

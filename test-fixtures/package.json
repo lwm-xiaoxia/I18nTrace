@@ -1,5 +1,5 @@
 {
-  "name": "locale-trace-fixture",
+  "name": "i18n-trace-fixture",
   "version": "0.0.0",
   "private": true,
   "dependencies": {

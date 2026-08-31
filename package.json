@@ -1,9 +1,9 @@
 {
-  "name": "locale-trace",
-  "displayName": "LocaleTrace",
+  "name": "i18n-trace",
+  "displayName": "I18nTrace",
   "description": "在代码中常驻显示 i18n 译文，并支持按译文反查 key（增强 Ctrl+F）",
   "version": "0.1.0",
-  "publisher": "locale-trace",
+  "publisher": "i18n-trace",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -30,39 +30,39 @@
   "contributes": {
     "commands": [
       {
-        "command": "localeTrace.find",
-        "title": "LocaleTrace: 按译文查找（增强 Ctrl+F）"
+        "command": "i18nTrace.find",
+        "title": "I18nTrace: 按译文查找（增强 Ctrl+F）"
       },
       {
-        "command": "localeTrace.switchDisplayLocale",
-        "title": "LocaleTrace: 切换显示语种"
+        "command": "i18nTrace.switchDisplayLocale",
+        "title": "I18nTrace: 切换显示语种"
       },
       {
-        "command": "localeTrace.reindex",
-        "title": "LocaleTrace: 重建索引"
+        "command": "i18nTrace.reindex",
+        "title": "I18nTrace: 重建索引"
       },
       {
-        "command": "localeTrace.toggleInlayHints",
-        "title": "LocaleTrace: 开关译文气泡"
+        "command": "i18nTrace.toggleInlayHints",
+        "title": "I18nTrace: 开关译文气泡"
       }
     ],
     "keybindings": [
       {
-        "command": "localeTrace.find",
+        "command": "i18nTrace.find",
         "key": "ctrl+f",
         "mac": "cmd+f",
-        "when": "editorTextFocus && !findWidgetVisible && !isInEmbeddedEditor && config.localeTrace.search.enhanceCtrlF"
+        "when": "editorTextFocus && !findWidgetVisible && !isInEmbeddedEditor && config.i18nTrace.search.enhanceCtrlF"
       }
     ],
     "configuration": {
-      "title": "LocaleTrace",
+      "title": "I18nTrace",
       "properties": {
-        "localeTrace.enabled": {
+        "i18nTrace.enabled": {
           "type": "boolean",
           "default": true,
-          "description": "启用 LocaleTrace（关闭后不构建索引、不显示气泡）。"
+          "description": "启用 I18nTrace（关闭后不构建索引、不显示气泡）。"
         },
-        "localeTrace.localeDirs": {
+        "i18nTrace.localeDirs": {
           "type": "array",
           "items": {
             "type": "string"
@@ -70,22 +70,22 @@
           "default": [],
           "description": "手动指定语言文件目录或 glob（相对工作区根）。非空时完全以此为准，跳过自动检测。"
         },
-        "localeTrace.localeFileGlob": {
+        "i18nTrace.localeFileGlob": {
           "type": "string",
           "default": "**/{locale,locales,lang,langs,i18n,translation,translations}/**/*.{json,json5,yaml,yml,js,ts,mjs,cjs}",
           "description": "自动检测语言文件使用的 glob。"
         },
-        "localeTrace.displayLocale": {
+        "i18nTrace.displayLocale": {
           "type": "string",
           "default": "",
           "description": "气泡显示的语种代码（如 zh-CN）。留空则自动选择（优先中文，其次第一个）。"
         },
-        "localeTrace.sourceLocale": {
+        "i18nTrace.sourceLocale": {
           "type": "string",
           "default": "",
           "description": "源语种代码，用于反查与校验。留空自动推断。"
         },
-        "localeTrace.keyStyle": {
+        "i18nTrace.keyStyle": {
           "type": "string",
           "enum": [
             "auto",
@@ -95,7 +95,7 @@
           "default": "auto",
           "description": "语言文件 key 结构：auto 自动，nested 嵌套对象，flat 扁平点号 key。"
         },
-        "localeTrace.translationFunctions": {
+        "i18nTrace.translationFunctions": {
           "type": "array",
           "items": {
             "type": "string"
@@ -110,23 +110,23 @@
           ],
           "description": "识别为翻译函数的名称（支持点号形式，如 i18n.t）。"
         },
-        "localeTrace.inlayHints.enabled": {
+        "i18nTrace.inlayHints.enabled": {
           "type": "boolean",
           "default": true,
           "description": "显示译文 Inlay Hint 气泡。"
         },
-        "localeTrace.inlayHints.maxLength": {
+        "i18nTrace.inlayHints.maxLength": {
           "type": "number",
           "default": 40,
           "minimum": 4,
           "description": "气泡译文超过该长度时截断。"
         },
-        "localeTrace.inlayHints.showWhenMissing": {
+        "i18nTrace.inlayHints.showWhenMissing": {
           "type": "boolean",
           "default": true,
           "description": "key 在语言文件中找不到时，显示 ⚠️ 提示气泡。"
         },
-        "localeTrace.languageSelector": {
+        "i18nTrace.languageSelector": {
           "type": "array",
           "items": {
             "type": "string"
@@ -142,12 +142,12 @@
           ],
           "description": "启用译文气泡与增强查找的语言（languageId）。"
         },
-        "localeTrace.search.enhanceCtrlF": {
+        "i18nTrace.search.enhanceCtrlF": {
           "type": "boolean",
           "default": true,
           "description": "把编辑器内 Ctrl+F 增强为「按译文查找」（无译文命中时等价普通查找）。关闭后 Ctrl+F 完全恢复原生。"
         },
-        "localeTrace.search.maxKeysPerSearch": {
+        "i18nTrace.search.maxKeysPerSearch": {
           "type": "number",
           "default": 50,
           "description": "单次增强查找最多纳入的 key 数量，超出则截断并提示。"

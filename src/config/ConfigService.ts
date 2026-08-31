@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { DisposableStore } from '../util/disposable';
 
-export interface LocaleTraceConfig {
+export interface I18nTraceConfig {
   enabled: boolean;
   localeDirs: string[];
   localeFileGlob: string;
@@ -21,15 +21,15 @@ export interface LocaleTraceConfig {
   };
 }
 
-const SECTION = 'localeTrace';
+const SECTION = 'i18nTrace';
 
 /**
- * 读取并缓存 localeTrace.* 配置，配置变化时对外广播。
+ * 读取并缓存 i18nTrace.* 配置，配置变化时对外广播。
  * 提供「结构性配置变化」与「显示性配置变化」的区分，避免每次都重建索引。
  */
 export class ConfigService {
   private readonly store = new DisposableStore();
-  private current: LocaleTraceConfig;
+  private current: I18nTraceConfig;
 
   private readonly structuralEmitter = new vscode.EventEmitter<void>();
   /** 影响索引构建的配置变化（目录、glob、keyStyle）。订阅方应重建索引。 */
@@ -58,7 +58,7 @@ export class ConfigService {
     );
   }
 
-  get value(): LocaleTraceConfig {
+  get value(): I18nTraceConfig {
     return this.current;
   }
 
@@ -80,7 +80,7 @@ export class ConfigService {
   }
 }
 
-function read(): LocaleTraceConfig {
+function read(): I18nTraceConfig {
   const c = vscode.workspace.getConfiguration(SECTION);
   return {
     enabled: c.get('enabled', true),
@@ -121,7 +121,7 @@ function read(): LocaleTraceConfig {
   };
 }
 
-function isStructuralChange(a: LocaleTraceConfig, b: LocaleTraceConfig): boolean {
+function isStructuralChange(a: I18nTraceConfig, b: I18nTraceConfig): boolean {
   return (
     a.enabled !== b.enabled ||
     a.localeFileGlob !== b.localeFileGlob ||

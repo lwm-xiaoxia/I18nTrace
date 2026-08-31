@@ -28,7 +28,7 @@ export class DisposableStore implements vscode.Disposable {
       try {
         this.items.pop()?.dispose();
       } catch (err) {
-        console.error('[LocaleTrace] dispose 出错', err);
+        console.error('[I18nTrace] dispose 出错', err);
       }
     }
   }
