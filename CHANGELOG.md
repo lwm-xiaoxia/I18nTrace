@@ -1,5 +1,11 @@
 # 更新日志
 
+## 1.0.1
+
+- 修复译文悬浮框内容重复显示两遍（tooltip 同时挂在 hint 和 label part 上）
+- 修复 Ctrl/Cmd + 点击气泡无法打开语言文件：改用 `command`（`vscode.open` + 定位行）替代 `location`
+- 悬浮框排版微调
+
 ## 1.0.0
 
 - 新增扩展图标（`{ 文 }`）
