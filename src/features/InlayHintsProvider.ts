@@ -118,19 +118,19 @@ export class I18nTraceInlayHintsProvider implements vscode.InlayHintsProvider {
         prefix + truncateForHint(composedValue, cfg.inlayHints.maxLength),
       );
       part.tooltip = tooltip;
-      // 设置 location 后，Ctrl/Cmd+点击气泡即可跳转到语言文件中该 key 的定义。
-      part.location = new vscode.Location(
-        primary.uri,
-        primary.range ?? new vscode.Range(0, 0, 0, 0),
-      );
+      // 用 command 而不是 location：location 会让编辑器在该处「转到定义」，
+      // 而语言文件里 key 的值没有 TS 定义，点了没反应。command 直接打开文件并定位到该行。
+      part.command = {
+        title: '打开语言文件',
+        command: 'vscode.open',
+        arguments: primary.range
+          ? [primary.uri, { selection: primary.range } as vscode.TextDocumentShowOptions]
+          : [primary.uri],
+      };
 
-      const hint = new vscode.InlayHint(
-        call.hintPosition,
-        [part],
-        vscode.InlayHintKind.Type,
-      );
+      const hint = new vscode.InlayHint(call.hintPosition, [part], vscode.InlayHintKind.Type);
       hint.paddingLeft = true;
-      hint.tooltip = tooltip;
+      // tooltip 只挂在 part 上；同时挂到 hint 会让悬浮框把同一段内容显示两遍。
       hints.push(hint);
     }
     return hints;
@@ -139,13 +139,16 @@ export class I18nTraceInlayHintsProvider implements vscode.InlayHintsProvider {
   private buildTooltip(key: string, displayLocale: string | undefined): vscode.MarkdownString {
     const all = this.indexManager.index.getAllForKey(key);
     const md = new vscode.MarkdownString();
-    md.appendMarkdown(`**\`${key}\`**\n\n`);
+    md.appendMarkdown(`\`${key}\`\n\n`);
     if (all) {
       for (const [locale, entry] of [...all.entries()].sort()) {
-        const marker = locale === displayLocale ? '▸ ' : '';
-        md.appendMarkdown(`${marker}\`${locale}\`: ${escapeMd(entry.value)}\n\n`);
+        // 当前显示语种加实心点，其余空心点
+        const marker = locale === displayLocale ? '$(circle-filled)' : '$(circle)';
+        md.appendMarkdown(`${marker} \`${locale}\`  ${escapeMd(entry.value)}\n\n`);
       }
     }
+    md.appendMarkdown(`\n$(link-external) Ctrl/Cmd + 点击打开语言文件`);
+    md.supportThemeIcons = true;
     md.isTrusted = false;
     return md;
   }
