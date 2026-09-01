@@ -52,10 +52,10 @@ Ctrl+F 输入「删除成功」 → 跳到 t('user.deleteSuccess')
 | Vue SFC（`<template>` + `<script>`） | ✅ 含 `$t` / `v-t` / `<i18n-t keypath>` / `<i18n path>` |
 | HTML / Svelte | ✅ 通用调用识别 |
 | Vue I18n / Nuxt、react-i18next / i18next / Next.js | ✅（调用形式层面） |
-| Angular `$localize` / ngx-translate、`intl.formatMessage` | ⏳ 计划中（Adapter 扩展点已预留） |
+| React Intl、Angular `$localize` / ngx-translate / Transloco | ✅ `formatMessage({ id })`、显式 id、管道和属性写法 |
 
 **识别的调用形式**：`t('k')`、`$t("k")`、`i18n.t(\`k\`)`、`i18n.global.t('k')`、`translate('k')`，
-以及模板 / JSX / 属性 / 组件参数等位置。可通过 `i18nTrace.translationFunctions` 增补函数名。
+以及 Vue 指令与组件属性、React Intl `formatMessage({ id })`、ngx-translate / Transloco 管道、Angular `$localize` 显式 id 等位置。可通过 `i18nTrace.translationFunctions` 增补函数名。
 
 **动态 key**（`t(\`a.${x}\`)`、`t('a.' + x)`、`t(variable)`）无法可靠解析，**直接跳过，不误判**。
 
@@ -67,7 +67,7 @@ Ctrl+F 输入「删除成功」 → 跳到 t('user.deleteSuccess')
 | YAML / YML | ✅（叶子节点带精确定位） |
 | JS / TS / MJS / CJS | ✅ 静态解析 `export default { ... }` / `module.exports = { ... }`（**不执行代码**；`import` 拼接、展开外部对象、运行时计算值不支持） |
 
-支持：嵌套 key、扁平点号 key、多 locale、多个 locale 目录、monorepo、多根工作区。
+支持：嵌套 key、扁平 key、多 locale、多个 locale 目录、monorepo、多根工作区，以及 i18next 常见的 `locales/en/common.json`、`locales/en/pages/home.json` 和 `i18n/common/en/index.json` 命名空间布局。
 
 ## 配置项
 
@@ -77,8 +77,9 @@ Ctrl+F 输入「删除成功」 → 跳到 t('user.deleteSuccess')
 | `i18nTrace.localeDirs` | `[]` | 手动指定语言文件目录 / glob；非空时完全以此为准 |
 | `i18nTrace.localeFileGlob` | 见设置 | 自动检测语言文件的 glob |
 | `i18nTrace.displayLocale` | `""` | 气泡显示语种；留空自动选（优先中文） |
-| `i18nTrace.sourceLocale` | `""` | 源语种 |
-| `i18nTrace.keyStyle` | `"auto"` | `auto` / `nested` / `flat` |
+| `i18nTrace.sourceLocale` | `""` | 按译文反查时使用的语种；留空跟随显示语种 |
+| `i18nTrace.keySeparator` | `"."` | 嵌套语言对象拍平时的 key 分隔符 |
+| `i18nTrace.keyPrefixes` | `["++","+","@","#"]` | 原 key 不命中时尝试剥离的自定义前缀；清空可关闭 |
 | `i18nTrace.translationFunctions` | `["t","$t","i18n.t","i18n.global.t","translate","$translate"]` | 识别为翻译函数的名称 |
 | `i18nTrace.inlayHints.enabled` | `true` | 显示译文气泡 |
 | `i18nTrace.inlayHints.maxLength` | `40` | 气泡译文截断长度 |
@@ -126,5 +127,5 @@ pnpm run typecheck
 
 - 增强查找范围为**当前文件**；跨文件「按译文搜索」计划后续版本提供
 - JS/TS 语言文件仅静态解析 `export default { … }` / `module.exports = { … }` 里的对象字面量；通过 `import` 组合子模块、`import.meta.glob` 动态聚合、运行时计算的翻译取不到（碰到时用 `I18nTrace: 显示诊断信息` 排查，或用 `i18nTrace.localeDirs` 直接指向叶子语言文件目录）
-- Angular `$localize` / ngx-translate / `intl.formatMessage` / Svelte 专用写法需后续 Adapter
+- Angular 无显式 `@@id` 的 `$localize`、Svelte 专用写法需后续 Adapter
 - `.vue` / `.svelte` 的 languageId 依赖对应语言扩展；未安装时按文件扩展名兜底识别

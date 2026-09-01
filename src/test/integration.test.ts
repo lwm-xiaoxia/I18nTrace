@@ -55,6 +55,20 @@ describe('集成：激活 + Inlay Hint + 增强查找', function () {
     assert.ok(labels.some((l) => l.includes('确认删除')), 'keypath=user.deleteConfirm');
   });
 
+  it('i18next 的 locale/语言/namespace.json 布局可通过默认或显式 namespace 命中', async () => {
+    const doc = await vscode.workspace.openTextDocument(fixture('src/I18nextDemo.ts'));
+    const hints = (await vscode.commands.executeCommand(
+      'vscode.executeInlayHintProvider',
+      doc.uri,
+      new vscode.Range(0, 0, Math.max(0, doc.lineCount - 1), 0),
+    )) as vscode.InlayHint[];
+    const labels = hints.map((hint) =>
+      typeof hint.label === 'string' ? hint.label : hint.label.map((part) => part.value).join(''),
+    );
+    assert.ok(labels.some((label) => label.includes('Save')), `默认 namespace 未命中：${labels.join(' | ')}`);
+    assert.ok(labels.some((label) => label.includes('Cancel')), `显式 namespace 未命中：${labels.join(' | ')}`);
+  });
+
   it('i18nTrace.find 命令已注册', async () => {
     const all = await vscode.commands.getCommands(true);
     assert.ok(all.includes('i18nTrace.find'));

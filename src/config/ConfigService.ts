@@ -7,7 +7,10 @@ export interface I18nTraceConfig {
   localeFileGlob: string;
   displayLocale: string;
   sourceLocale: string;
-  keyStyle: 'auto' | 'nested' | 'flat';
+  /** 嵌套对象拍平时使用的 key 分隔符。 */
+  keySeparator: string;
+  /** 自定义翻译函数可能使用的 key 前缀；仅在原 key 查不到时才剥离。 */
+  keyPrefixes: string[];
   translationFunctions: string[];
   inlayHints: {
     enabled: boolean;
@@ -34,7 +37,7 @@ export class ConfigService {
   private current: I18nTraceConfig;
 
   private readonly structuralEmitter = new vscode.EventEmitter<void>();
-  /** 影响索引构建的配置变化（目录、glob、keyStyle）。订阅方应重建索引。 */
+  /** 影响索引构建的配置变化（目录、glob、key 分隔符）。订阅方应重建索引。 */
   readonly onDidChangeStructural = this.structuralEmitter.event;
 
   private readonly displayEmitter = new vscode.EventEmitter<void>();
@@ -93,7 +96,8 @@ function read(): I18nTraceConfig {
     ),
     displayLocale: c.get('displayLocale', ''),
     sourceLocale: c.get('sourceLocale', ''),
-    keyStyle: c.get('keyStyle', 'auto'),
+    keySeparator: c.get('keySeparator', '.'),
+    keyPrefixes: c.get('keyPrefixes', ['++', '+', '@', '#']),
     translationFunctions: c.get('translationFunctions', [
       't',
       '$t',
@@ -128,7 +132,7 @@ function isStructuralChange(a: I18nTraceConfig, b: I18nTraceConfig): boolean {
   return (
     a.enabled !== b.enabled ||
     a.localeFileGlob !== b.localeFileGlob ||
-    a.keyStyle !== b.keyStyle ||
+    a.keySeparator !== b.keySeparator ||
     JSON.stringify(a.localeDirs) !== JSON.stringify(b.localeDirs)
   );
 }

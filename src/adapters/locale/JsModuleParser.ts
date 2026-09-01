@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import JSON5 from 'json5';
-import { LocaleEntry, LocaleParser } from '../../core/types';
+import { LocaleEntry, LocaleParser, ParseContext } from '../../core/types';
 import { flattenLocaleObject } from './flatten';
 
 /**
@@ -19,7 +19,7 @@ import { flattenLocaleObject } from './flatten';
 export class JsModuleParser implements LocaleParser {
   readonly extensions = ['js', 'ts', 'mjs', 'cjs'] as const;
 
-  parse(uri: vscode.Uri, text: string, locale: string): LocaleEntry[] {
+  parse(uri: vscode.Uri, text: string, ctx: ParseContext): LocaleEntry[] {
     const objectLiteral = extractDefaultObjectLiteral(text);
     if (!objectLiteral) {
       return [];
@@ -39,7 +39,7 @@ export class JsModuleParser implements LocaleParser {
         return [];
       }
     }
-    return flattenLocaleObject(data, uri, locale, text);
+    return flattenLocaleObject(data, uri, ctx, text);
   }
 }
 

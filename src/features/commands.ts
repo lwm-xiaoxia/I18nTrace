@@ -83,7 +83,7 @@ export function registerCommands(
               continue;
             }
             seen.add(call.key);
-            const parts = indexManager.index.resolveKeyParts(call.key);
+            const parts = indexManager.index.resolveKeyParts(call.key, call.namespace);
             if (!parts) {
               logger.append(`  ✗ ${call.key} — 无法解析到任何 key`);
               continue;

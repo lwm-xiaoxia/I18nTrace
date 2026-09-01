@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { parseDocument, isScalar, isMap, isSeq, Node } from 'yaml';
-import { LocaleEntry, LocaleParser } from '../../core/types';
+import { LocaleEntry, LocaleParser, ParseContext } from '../../core/types';
 import { KEY_SEPARATOR } from './flatten';
 
 /**
@@ -10,7 +10,7 @@ import { KEY_SEPARATOR } from './flatten';
 export class YamlParser implements LocaleParser {
   readonly extensions = ['yaml', 'yml'] as const;
 
-  parse(uri: vscode.Uri, text: string, locale: string): LocaleEntry[] {
+  parse(uri: vscode.Uri, text: string, ctx: ParseContext): LocaleEntry[] {
     let doc: ReturnType<typeof parseDocument>;
     try {
       doc = parseDocument(text, { keepSourceTokens: false });
@@ -44,8 +44,9 @@ export class YamlParser implements LocaleParser {
         }
         const range = (node as Node).range;
         entries.push({
-          key: path.join(KEY_SEPARATOR),
-          locale,
+          key: path.join(ctx.keySeparator || KEY_SEPARATOR),
+          namespace: ctx.namespace,
+          locale: ctx.locale,
           value: String(node.value),
           uri,
           range: range ? offsets.toRange(range[0], range[1]) : undefined,

@@ -4,6 +4,7 @@ import { ConfigService } from '../config/ConfigService';
 import { FrameworkAdapterRegistry } from '../adapters/framework/registry';
 import { escapeRegExp } from '../util/text';
 import { DisposableStore } from '../util/disposable';
+import { debounce } from '../util/debounce';
 
 /**
  * 增强 Ctrl+F：把「译文」翻译成一组 key，再交回 VS Code 原生查找框。
@@ -18,6 +19,8 @@ import { DisposableStore } from '../util/disposable';
  */
 export class FindEnhancer {
   private readonly store = new DisposableStore();
+  /** 文档版本 + 词组的结果缓存，避免输入时反复扫描整篇源码。 */
+  private readonly hitCache = new Map<string, string[]>();
 
   constructor(
     private readonly indexManager: IndexManager,
@@ -27,6 +30,8 @@ export class FindEnhancer {
     this.store.add(
       vscode.commands.registerCommand('i18nTrace.find', () => this.run()),
     );
+    this.store.add(this.indexManager.index.onDidChange(() => this.hitCache.clear()));
+    this.store.add(this.config.onDidChangeDisplay(() => this.hitCache.clear()));
   }
 
   dispose(): void {
@@ -76,6 +81,19 @@ export class FindEnhancer {
 
     // 本次调用的临时订阅，随输入框关闭一起释放
     const local: vscode.Disposable[] = [];
+    const updatePrompt = debounce((value: string) => {
+      const q = value.trim();
+      if (done || input.value !== value) {
+        return;
+      }
+      if (!q) {
+        input.prompt = '命中译文 → 跳到对应 key 调用；未命中 → 普通查找';
+        return;
+      }
+      const n = this.resolveHitKeys(editor.document, q).length;
+      input.prompt = n > 0 ? `匹配到 ${n} 个 key（Enter 用正则定位）` : '无译文命中，Enter 走普通查找';
+    }, 150);
+    local.push({ dispose: () => updatePrompt.cancel() });
     local.push(
       input.onDidTriggerButton((btn) => {
         if (btn === plainButton) {
@@ -85,13 +103,7 @@ export class FindEnhancer {
       input.onDidAccept(() => void finish('auto')),
       // 实时提示匹配到多少 key（轻量，不做结果列表）
       input.onDidChangeValue((v) => {
-        const q = v.trim();
-        if (!q) {
-          input.prompt = '命中译文 → 跳到对应 key 调用；未命中 → 普通查找';
-          return;
-        }
-        const n = this.resolveHitKeys(editor.document, q).length;
-        input.prompt = n > 0 ? `匹配到 ${n} 个 key（Enter 用正则定位）` : '无译文命中，Enter 走普通查找';
+        updatePrompt(v);
       }),
       input.onDidHide(() => {
         done = true;
@@ -120,7 +132,7 @@ export class FindEnhancer {
       // 译文可能在别的文件里命中，提示一下（当前版本搜索范围仅当前文件）
       const globalHits = this.indexManager.index.findKeysByTranslation(
         phrase,
-        this.indexManager.resolveDisplayLocale(),
+        this.indexManager.resolveSourceLocale(),
         1,
       );
       if (globalHits.length > 0) {
@@ -146,20 +158,30 @@ export class FindEnhancer {
 
   /** 短语 → 当前文件里真实出现、且译文匹配的 key 列表。 */
   private resolveHitKeys(document: vscode.TextDocument, phrase: string): string[] {
+    const cacheKey = [
+      document.uri.toString(),
+      document.version,
+      this.indexManager.resolveSourceLocale() ?? '',
+      phrase,
+    ].join('\u0000');
+    const cached = this.hitCache.get(cacheKey);
+    if (cached) {
+      return cached;
+    }
     const matchedKeys = new Set(
       this.indexManager.index.findKeysByTranslation(
         phrase,
-        this.indexManager.resolveDisplayLocale(),
+        this.indexManager.resolveSourceLocale(),
       ),
     );
     if (matchedKeys.size === 0) {
-      return [];
+      return this.cache(cacheKey, []);
     }
 
     const adapter = this.adapters.forDocument(document);
     if (!adapter) {
       // 非代码文件：无法定位调用，交给普通查找
-      return [];
+      return this.cache(cacheKey, []);
     }
 
     const fullRange = new vscode.Range(
@@ -177,13 +199,25 @@ export class FindEnhancer {
     for (const call of calls) {
       // call.key 是代码里的字面量（可能带前缀 / 是扁平 key）；解析成索引真实 key 再比对，
       // 但返回的仍是字面量本身，供 buildKeyLiteralRegex 在源码里精确定位。
-      const resolved = this.indexManager.index.resolveKey(call.key) ?? call.key;
+      const resolved = this.indexManager.index.resolveKey(call.key, call.namespace) ?? call.key;
       if (matchedKeys.has(resolved) && !seen.has(call.key)) {
         seen.add(call.key);
         result.push(call.key);
       }
     }
-    return result;
+    return this.cache(cacheKey, result);
+  }
+
+  private cache(cacheKey: string, value: string[]): string[] {
+    // 使用有上限的简单 FIFO，避免长时间编辑时缓存无限增长。
+    if (this.hitCache.size >= 100) {
+      const first = this.hitCache.keys().next().value;
+      if (first) {
+        this.hitCache.delete(first);
+      }
+    }
+    this.hitCache.set(cacheKey, value);
+    return value;
   }
 
   private async nativeFind(searchString: string, isRegex: boolean): Promise<void> {

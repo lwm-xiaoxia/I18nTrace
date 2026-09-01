@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import JSON5 from 'json5';
-import { LocaleEntry, LocaleParser } from '../../core/types';
+import { LocaleEntry, LocaleParser, ParseContext } from '../../core/types';
 import { flattenLocaleObject } from './flatten';
 
 /**
@@ -11,7 +11,7 @@ import { flattenLocaleObject } from './flatten';
 export class JsonParser implements LocaleParser {
   readonly extensions = ['json', 'json5'] as const;
 
-  parse(uri: vscode.Uri, text: string, locale: string): LocaleEntry[] {
+  parse(uri: vscode.Uri, text: string, ctx: ParseContext): LocaleEntry[] {
     let data: unknown;
     try {
       data = JSON5.parse(text);
@@ -19,6 +19,6 @@ export class JsonParser implements LocaleParser {
       console.warn(`[I18nTrace] JSON 解析失败: ${uri.fsPath}`, (err as Error).message);
       return [];
     }
-    return flattenLocaleObject(data, uri, locale, text);
+    return flattenLocaleObject(data, uri, ctx, text);
   }
 }

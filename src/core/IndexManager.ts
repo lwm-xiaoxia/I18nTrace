@@ -2,8 +2,9 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { I18nIndex } from './I18nIndex';
 import { LocaleParserRegistry } from '../adapters/locale/registry';
-import { ProjectScanner, LocaleFile, inferLocale } from '../config/ProjectScanner';
+import { ProjectScanner, LocaleFile } from '../config/ProjectScanner';
 import { ConfigService } from '../config/ConfigService';
+import { analyzeLocalePath } from '../config/localePath';
 import { DisposableStore } from '../util/disposable';
 import { logger } from '../util/logger';
 
@@ -11,6 +12,7 @@ import { logger } from '../util/logger';
 export interface FileDiag {
   path: string;
   locale: string;
+  namespace?: string;
   entries: number;
   error?: string;
 }
@@ -24,8 +26,8 @@ export class IndexManager {
   readonly index = new I18nIndex();
   private readonly store = new DisposableStore();
 
-  /** uriString → 该文件推断出的 locale，供单文件更新时复用 */
-  private fileLocale = new Map<string, string>();
+  /** uriString → 该文件的完整扫描信息，供单文件增量更新时复用。 */
+  private fileInfo = new Map<string, LocaleFile>();
   /** 进行中的全量构建；并发调用共享同一个 Promise，构建期间又被请求则结束后再跑一次 */
   private buildInFlight: Promise<void> | null = null;
   private buildQueued = false;
@@ -40,6 +42,9 @@ export class IndexManager {
     private readonly scanner: ProjectScanner,
   ) {
     this.store.add(this.index);
+    this.syncIndexOptions();
+    // key 前缀不改变索引内容，只影响代码调用与索引 key 的解析；配置变更后立即生效。
+    this.store.add(this.config.onDidChangeDisplay(() => this.syncIndexOptions()));
   }
 
   dispose(): void {
@@ -48,7 +53,7 @@ export class IndexManager {
 
   /** 该 uri 是否是当前索引纳入的语言文件。 */
   isTrackedLocaleFile(uri: vscode.Uri): boolean {
-    return this.fileLocale.has(uri.toString());
+    return this.fileInfo.has(uri.toString());
   }
 
   /** 供 watcher 判断新建文件是否符合语言文件命名。 */
@@ -80,7 +85,7 @@ export class IndexManager {
   }
 
   private async doRebuild(): Promise<void> {
-    this.fileLocale.clear();
+    this.fileInfo.clear();
     this.index.clear();
 
     if (!this.config.value.enabled) {
@@ -96,7 +101,7 @@ export class IndexManager {
     const files = await this.scanner.scan(cfg);
     this.lastScan = [];
     for (const file of files) {
-      this.fileLocale.set(file.uri.toString(), file.locale);
+      this.fileInfo.set(file.uri.toString(), file);
       const diag = await this.parseInto(file);
       this.lastScan.push(diag);
     }
@@ -130,6 +135,8 @@ export class IndexManager {
     lines.push(`扫描依据：${this.lastScanMeta || '（尚未扫描）'}`);
     lines.push(`locale：[${this.index.getLocales().join(', ') || '无'}]`);
     lines.push(`displayLocale：${this.resolveDisplayLocale() ?? '（无）'}`);
+    lines.push(`sourceLocale：${this.resolveSourceLocale() ?? '（无）'}`);
+    lines.push(`命名空间：[${this.index.getNamespaces().join(', ') || '无'}]`);
     lines.push(`总 key 数：${this.lastScan.reduce((n, d) => n + d.entries, 0)}`);
     lines.push('');
     lines.push('语言文件：');
@@ -138,7 +145,8 @@ export class IndexManager {
     }
     for (const d of this.lastScan) {
       const tag = d.error ? `解析失败: ${d.error}` : `${d.entries} key`;
-      lines.push(`  [${d.locale}] ${d.path} — ${tag}`);
+      const namespace = d.namespace ? ` ns=${d.namespace}` : '';
+      lines.push(`  [${d.locale}${namespace}] ${d.path} — ${tag}`);
     }
 
     if (activeDoc) {
@@ -163,23 +171,25 @@ export class IndexManager {
     if (!this.config.value.enabled || !this.supportsExtension(uri)) {
       return;
     }
-    let locale = this.fileLocale.get(uri.toString());
-    if (!locale) {
+    let file = this.fileInfo.get(uri.toString());
+    if (!file) {
       // 新建文件：重新推断并纳入
-      locale = inferLocale(uri);
-      this.fileLocale.set(uri.toString(), locale);
+      const info = analyzeLocalePath(uri.fsPath);
+      const folder = vscode.workspace.getWorkspaceFolder(uri);
+      file = {
+        uri,
+        locale: info.locale,
+        namespace: info.namespace,
+        workspaceFolder: folder?.uri.fsPath ?? '',
+        depth: 0,
+      };
+      this.fileInfo.set(uri.toString(), file);
     }
-    const folder = vscode.workspace.getWorkspaceFolder(uri);
-    await this.parseInto({
-      uri,
-      locale,
-      workspaceFolder: folder?.uri.fsPath ?? '',
-      depth: 0,
-    });
+    await this.parseInto(file);
   }
 
   removeFile(uri: vscode.Uri): void {
-    if (this.fileLocale.delete(uri.toString())) {
+    if (this.fileInfo.delete(uri.toString())) {
       this.index.removeFile(uri);
     }
   }
@@ -189,17 +199,38 @@ export class IndexManager {
     const ext = path.extname(file.uri.fsPath).slice(1).toLowerCase();
     const parser = this.parsers.get(ext);
     if (!parser) {
-      return { path: rel, locale: file.locale, entries: 0, error: `无 .${ext} 解析器` };
+      return {
+        path: rel,
+        locale: file.locale,
+        namespace: file.namespace,
+        entries: 0,
+        error: `无 .${ext} 解析器`,
+      };
     }
     try {
       const bytes = await vscode.workspace.fs.readFile(file.uri);
       const text = Buffer.from(bytes).toString('utf8');
-      const entries = parser.parse(file.uri, text, file.locale);
+      const entries = parser.parse(file.uri, text, {
+        locale: file.locale,
+        namespace: file.namespace,
+        keySeparator: this.config.value.keySeparator,
+      });
       this.index.replaceFile(file.uri, entries);
-      return { path: rel, locale: file.locale, entries: entries.length };
+      return {
+        path: rel,
+        locale: file.locale,
+        namespace: file.namespace,
+        entries: entries.length,
+      };
     } catch (err) {
       this.index.replaceFile(file.uri, []);
-      return { path: rel, locale: file.locale, entries: 0, error: (err as Error).message };
+      return {
+        path: rel,
+        locale: file.locale,
+        namespace: file.namespace,
+        entries: 0,
+        error: (err as Error).message,
+      };
     }
   }
 
@@ -223,5 +254,22 @@ export class IndexManager {
       return locales.find((l) => /^zh/i.test(l)) ?? locales[0];
     }
     return locales.find((l) => /^zh/i.test(l)) ?? locales[0];
+  }
+
+  /**
+   * 决定 Ctrl+F 按译文反查使用的 locale。
+   * 显式 sourceLocale 优先；未配置时保持原行为，跟随显示语种。
+   */
+  resolveSourceLocale(): string | undefined {
+    const configured = this.config.value.sourceLocale.trim();
+    const locales = this.index.getLocales();
+    if (configured && locales.includes(configured)) {
+      return configured;
+    }
+    return this.resolveDisplayLocale();
+  }
+
+  private syncIndexOptions(): void {
+    this.index.setOptions({ keyPrefixes: this.config.value.keyPrefixes });
   }
 }

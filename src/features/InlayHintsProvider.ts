@@ -83,9 +83,10 @@ export class I18nTraceInlayHintsProvider implements vscode.InlayHintsProvider {
     const hints: vscode.InlayHint[] = [];
     for (const call of calls) {
       // 代码里的 key 可能带前缀、可能是扁平 key、也可能是空格分隔的多段 key
-      const resolvedKeys = index.resolveKeyParts(call.key);
-      const entries = resolvedKeys?.map((k) => index.getEntry(k, displayLocale));
-      if (!resolvedKeys || !entries || entries.some((e) => !e)) {
+      const resolutions = index.resolveKeyPartsDetailed(call.key, call.namespace);
+      const resolvedKeys = resolutions?.map((resolution) => resolution.key);
+      const entries = resolvedKeys?.map((key) => index.getEntry(key, displayLocale));
+      if (!resolutions || !resolvedKeys || !entries || entries.some((e) => !e)) {
         if (cfg.inlayHints.showWhenMissing) {
           const hint = new vscode.InlayHint(
             call.hintPosition,
@@ -94,7 +95,8 @@ export class I18nTraceInlayHintsProvider implements vscode.InlayHintsProvider {
           );
           hint.paddingLeft = true;
           hint.tooltip = new vscode.MarkdownString(
-            `I18nTrace：语言文件中未找到 key \`${call.key}\``,
+            `I18nTrace：语言文件中未找到 key \`${call.key}\`。\n\n` +
+              '可运行 **I18nTrace: 显示诊断信息**，确认语言文件是否被扫描；目录结构特殊时可设置 `i18nTrace.localeDirs`。',
           );
           hints.push(hint);
         }
@@ -107,7 +109,7 @@ export class I18nTraceInlayHintsProvider implements vscode.InlayHintsProvider {
       const composedValue = okEntries.map((e) => e.value).join(joiner);
       const tooltip =
         resolvedKeys.length === 1
-          ? this.buildTooltip(primaryKey, displayLocale)
+          ? this.buildTooltip(primaryKey, displayLocale, resolutions[0].candidates)
           : new vscode.MarkdownString(
               resolvedKeys.map((k, i) => `\`${k}\`: ${escapeMd(okEntries[i].value)}`).join('\n\n'),
             );
@@ -140,7 +142,11 @@ export class I18nTraceInlayHintsProvider implements vscode.InlayHintsProvider {
     return hints;
   }
 
-  private buildTooltip(key: string, displayLocale: string | undefined): vscode.MarkdownString {
+  private buildTooltip(
+    key: string,
+    displayLocale: string | undefined,
+    candidates: readonly string[],
+  ): vscode.MarkdownString {
     const all = this.indexManager.index.getAllForKey(key);
     const md = new vscode.MarkdownString();
     md.appendMarkdown(`\`${key}\`\n\n`);
@@ -150,6 +156,11 @@ export class I18nTraceInlayHintsProvider implements vscode.InlayHintsProvider {
         const marker = locale === displayLocale ? '$(circle-filled)' : '$(circle)';
         md.appendMarkdown(`${marker} \`${locale}\`  ${escapeMd(entry.value)}\n\n`);
       }
+    }
+    if (candidates.length > 1) {
+      md.appendMarkdown(
+        `> 注意：该裸 key 有 ${candidates.length} 个候选，当前展示 \`${key}\`。\n\n`,
+      );
     }
     // 底部不再自加「打开语言文件」提示：设了 command 后 VS Code 会自动显示「执行命令 (ctrl + 点击)」
     md.supportThemeIcons = true;

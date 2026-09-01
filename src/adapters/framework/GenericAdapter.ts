@@ -1,14 +1,31 @@
 import * as vscode from 'vscode';
 import { ExtractContext, FrameworkAdapter, I18nCall } from '../../core/types';
 import { escapeRegExp } from '../../util/text';
+import {
+  RawCall,
+  extractDefaultNamespace,
+  extractIntlMessageKeys,
+  extractLocalizeKeys,
+  extractPipeKeys,
+  maskComments,
+  namespaceFromOptions,
+} from './patterns';
+
+export type { RawCall } from './patterns';
 
 /**
- * 通用适配器：正则识别常见 i18n 调用形式，适用于 JS/TS/JSX/TSX（以及 Vue/HTML 的 <script> 段）。
+ * 通用适配器：识别绝大多数 i18n 调用形式，覆盖 JS/TS/JSX/TSX/HTML/Svelte，
+ * 以及 Vue SFC 的 script 段（Vue 模板特有写法由 VueSfcAdapter 追加）。
  *
  * 覆盖：
- *   t('a.b')  $t("a.b")  i18n.t(`a.b`)  translate('a.b')  vm.$t('a.b', {...})
+ *   t('a.b')  $t("a.b")  i18n.t(`a.b`)  translate('a.b')  translate.instant('a.b')
+ *   t('save', { ns: 'common' })          → 带命名空间
+ *   useTranslation('common') + t('save') → 文件级默认命名空间
+ *   {{ 'a.b' | translate }}              → ngx-translate / transloco 管道
+ *   $localize`:@@a.b:文案`               → Angular 官方 i18n
  * 跳过（动态 key，按设计不猜）：
  *   t(`a.${x}`)  t(key)  t('a.' + x)
+ * 注释里的调用会被屏蔽，不产生气泡。
  */
 export class GenericAdapter implements FrameworkAdapter {
   readonly id = 'generic';
@@ -20,43 +37,88 @@ export class GenericAdapter implements FrameworkAdapter {
     'html',
     'vue',
     'svelte',
+    'astro',
   ];
+  /** 文档版本 → useTranslation 等文件级命名空间，避免每次拉取 Inlay Hint 都扫描整篇文档。 */
+  private readonly defaultNamespaceCache = new WeakMap<
+    vscode.TextDocument,
+    { version: number; namespace?: string }
+  >();
 
   extractCalls(
     document: vscode.TextDocument,
     range: vscode.Range,
     ctx: ExtractContext,
   ): I18nCall[] {
-    // 扩到整行，避免可视区边界把调用截断；对越界行号做钳制（防御 executeInlayHintProvider 传入越界 range）
-    const startLine = Math.max(0, Math.min(range.start.line, document.lineCount - 1));
-    const endLine = Math.max(startLine, Math.min(range.end.line, document.lineCount - 1));
-    const scanRange = new vscode.Range(
-      startLine,
-      0,
-      endLine,
-      document.lineAt(endLine).text.length,
-    );
-    const baseOffset = document.offsetAt(scanRange.start);
-    const text = document.getText(scanRange);
+    const scan = prepareScan(document, range);
+    const defaultNs = this.getDefaultNamespace(document, ctx.fullText);
 
-    return extractI18nCallsFromText(text, ctx.functionNames).map((raw) => ({
-      key: raw.key,
-      keyRange: new vscode.Range(
-        document.positionAt(baseOffset + raw.keyStart),
-        document.positionAt(baseOffset + raw.keyEnd),
-      ),
-      hintPosition: document.positionAt(baseOffset + raw.hintOffset),
-    }));
+    const raws = [
+      ...extractI18nCallsFromText(scan.text, ctx.functionNames),
+      ...extractPipeKeys(scan.text),
+      ...extractLocalizeKeys(scan.text),
+      ...extractIntlMessageKeys(scan.text),
+    ];
+    return toI18nCalls(document, scan, raws, defaultNs);
+  }
+
+  private getDefaultNamespace(document: vscode.TextDocument, fullText?: string): string | undefined {
+    const cached = this.defaultNamespaceCache.get(document);
+    if (cached?.version === document.version) {
+      return cached.namespace;
+    }
+    // 文件级默认命名空间要看整篇文档，不能只看可视区；同一版本只扫描一次。
+    const namespace = extractDefaultNamespace(fullText ?? document.getText());
+    this.defaultNamespaceCache.set(document, { version: document.version, namespace });
+    return namespace;
   }
 }
 
-export interface RawCall {
-  key: string;
-  /** key 字符串字面量（含引号）在 text 中的起止 offset */
-  keyStart: number;
-  keyEnd: number;
-  /** Inlay Hint 锚点 offset（调用右括号之后） */
-  hintOffset: number;
+export interface ScanSlice {
+  /** 已屏蔽注释的文本（offset 与原文一致） */
+  text: string;
+  /** 该片段在文档中的起始 offset */
+  baseOffset: number;
+}
+
+/** 把请求范围扩到整行并屏蔽注释，返回可直接做正则的文本。 */
+export function prepareScan(document: vscode.TextDocument, range: vscode.Range): ScanSlice {
+  // 扩到整行，避免可视区边界把调用截断；对越界行号做钳制
+  const startLine = Math.max(0, Math.min(range.start.line, document.lineCount - 1));
+  const endLine = Math.max(startLine, Math.min(range.end.line, document.lineCount - 1));
+  const scanRange = new vscode.Range(startLine, 0, endLine, document.lineAt(endLine).text.length);
+  return {
+    text: maskComments(document.getText(scanRange)),
+    baseOffset: document.offsetAt(scanRange.start),
+  };
+}
+
+/** 把文本层面的 RawCall 换算成带文档位置的 I18nCall，并按位置去重。 */
+export function toI18nCalls(
+  document: vscode.TextDocument,
+  scan: ScanSlice,
+  raws: RawCall[],
+  defaultNamespace?: string,
+): I18nCall[] {
+  const seen = new Set<number>();
+  const calls: I18nCall[] = [];
+  for (const raw of raws) {
+    // 同一处可能被多个模式命中（如 keypath 同时像属性又像调用），按 key 起点去重
+    if (seen.has(raw.keyStart)) {
+      continue;
+    }
+    seen.add(raw.keyStart);
+    calls.push({
+      key: raw.key,
+      namespace: raw.namespace ?? defaultNamespace,
+      keyRange: new vscode.Range(
+        document.positionAt(scan.baseOffset + raw.keyStart),
+        document.positionAt(scan.baseOffset + raw.keyEnd),
+      ),
+      hintPosition: document.positionAt(scan.baseOffset + raw.hintOffset),
+    });
+  }
+  return calls;
 }
 
 /**
@@ -66,7 +128,7 @@ export function extractI18nCallsFromText(text: string, functionNames: readonly s
   if (functionNames.length === 0) {
     return [];
   }
-  // 允许点号形式（i18n.t）；名字里非首段可含点。按长度降序，优先匹配更具体的名字。
+  // 允许点号形式（i18n.t、translate.instant）；按长度降序，优先匹配更具体的名字。
   const names = [...functionNames]
     .filter(Boolean)
     .sort((a, b) => b.length - a.length)
@@ -92,11 +154,10 @@ export function extractI18nCallsFromText(text: string, functionNames: readonly s
 
 /**
  * 从 '(' 开始解析调用：第一个实参必须是静态字符串字面量，否则视为动态 key 跳过。
- * 返回 key 内容、字面量范围、调用右括号后的 offset。
+ * 顺带从后续实参里读 `{ ns: 'x' }`。
  */
 function parseFirstStringArg(text: string, parenIndex: number): RawCall | undefined {
   let i = parenIndex + 1;
-  // 跳过空白
   while (i < text.length && /\s/.test(text[i])) {
     i++;
   }
@@ -141,14 +202,19 @@ function parseFirstStringArg(text: string, parenIndex: number): RawCall | undefi
     return undefined;
   }
 
-  // 找调用右括号（跳过后续实参）
-  const hintOffset = findCallClose(text, keyEnd, parenIndex);
-  return { key, keyStart, keyEnd, hintOffset };
+  const hintOffset = findCallClose(text, keyEnd);
+  return {
+    key,
+    namespace: namespaceFromOptions(text, keyEnd, hintOffset),
+    keyStart,
+    keyEnd,
+    hintOffset,
+  };
 }
 
-/** 从 fromIndex 起、已知起始 '(' 在 parenIndex，找配平的 ')' 之后的 offset。 */
-function findCallClose(text: string, fromIndex: number, parenIndex: number): number {
-  let depth = 1; // 已经进入 parenIndex 的括号
+/** 从 fromIndex 起找配平的 ')' 之后的 offset（起始 '(' 已消费）。 */
+function findCallClose(text: string, fromIndex: number): number {
+  let depth = 1;
   let inStr: string | null = null;
   for (let i = fromIndex; i < text.length; i++) {
     const ch = text[i];
@@ -169,11 +235,7 @@ function findCallClose(text: string, fromIndex: number, parenIndex: number): num
       if (depth === 0) {
         return i + 1;
       }
-    } else if (ch === '\n' && depth === 1) {
-      // 容错：单行内没闭合就停在行尾，避免跨越太多
-      // 继续尝试，i 已经到换行；不 break，允许多行调用
     }
   }
-  void parenIndex;
   return text.length;
 }

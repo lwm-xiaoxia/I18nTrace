@@ -5,8 +5,8 @@ import { LocaleEntry } from '../core/types';
 
 const uri = vscode.Uri.file('/v/zh-CN.json');
 
-function entry(key: string, value: string, locale = 'zh-CN'): LocaleEntry {
-  return { key, value, locale, uri };
+function entry(key: string, value: string, locale = 'zh-CN', namespace?: string): LocaleEntry {
+  return { key, value, locale, namespace, uri };
 }
 
 describe('I18nIndex', () => {
@@ -55,7 +55,7 @@ describe('I18nIndex', () => {
     assert.strictEqual(idx.getEntry('missing.key', 'zh-CN'), undefined);
   });
 
-  it('resolveKey：前缀剥离 + 扁平 key 回退到 <模块>.<key>', () => {
+  it('resolveKey：可配置前缀剥离 + 扁平 key 回退到 <模块>.<key>', () => {
     const idx = new I18nIndex();
     idx.replaceFile(uri, [
       entry('common.cancel', '取消'),
@@ -68,6 +68,33 @@ describe('I18nIndex', () => {
     assert.strictEqual(idx.resolveKey('#confirm'), 'common.confirm');
     assert.strictEqual(idx.resolveKey('++cancel'), 'common.cancel');
     assert.strictEqual(idx.resolveKey('nope'), undefined);
+  });
+
+  it('优先整体解析自然语句 key，不把它错误按空格拆开', () => {
+    const idx = new I18nIndex();
+    idx.replaceFile(uri, [entry('Save changes', '保存修改', 'en')]);
+    assert.deepStrictEqual(idx.resolveKeyParts('Save changes'), ['Save changes']);
+  });
+
+  it('支持 i18next namespace、调用点默认 namespace 与歧义候选', () => {
+    const idx = new I18nIndex();
+    idx.replaceFile(uri, [
+      entry('save', '保存', 'zh-CN', 'common'),
+      entry('save', '保存页面', 'zh-CN', 'page'),
+    ]);
+    assert.strictEqual(idx.resolveKey('common:save'), 'common:save');
+    assert.strictEqual(idx.resolveKey('common.save'), 'common:save');
+    assert.strictEqual(idx.resolveKey('save', 'page'), 'page:save');
+    const ambiguous = idx.resolveKeyDetailed('save');
+    assert.strictEqual(ambiguous?.key, 'common:save');
+    assert.deepStrictEqual(ambiguous?.candidates, ['common:save', 'page:save']);
+  });
+
+  it('关闭前缀兼容后不再剥离 key 前缀', () => {
+    const idx = new I18nIndex();
+    idx.setOptions({ keyPrefixes: [] });
+    idx.replaceFile(uri, [entry('common.cancel', '取消')]);
+    assert.strictEqual(idx.resolveKey('+cancel'), undefined);
   });
 
   it('resolveKeyParts：空格分隔多段 key 全部解析', () => {

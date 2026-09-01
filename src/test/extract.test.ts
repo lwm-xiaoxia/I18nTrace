@@ -1,6 +1,13 @@
 import * as assert from 'assert';
 import { extractI18nCallsFromText } from '../adapters/framework/GenericAdapter';
-import { extractVueDirectiveKeys } from '../adapters/framework/VueSfcAdapter';
+import {
+  extractDefaultNamespace,
+  extractIntlMessageKeys,
+  extractLocalizeKeys,
+  extractPipeKeys,
+  extractVueDirectiveKeys,
+  maskComments,
+} from '../adapters/framework/patterns';
 import { buildKeyLiteralRegex } from '../features/FindEnhancer';
 
 const FUNCS = ['t', '$t', 'i18n.t', 'i18n.global.t', 'translate'];
@@ -46,6 +53,25 @@ describe('GenericAdapter / extractI18nCallsFromText', () => {
     const [call] = extractI18nCallsFromText(code, FUNCS);
     assert.strictEqual(code.slice(call.keyStart, call.keyEnd), "'a.b'");
     assert.strictEqual(code[call.hintOffset - 1], ')');
+  });
+
+  it('屏蔽注释而不破坏真实字符串与模板插值中的调用', () => {
+    const code = maskComments("// t('ignored')\nconst url = 'https://example.test'; /* t('alsoIgnored') */\n`${t('real')}`");
+    assert.deepStrictEqual(extractI18nCallsFromText(code, FUNCS).map((item) => item.key), ['real']);
+  });
+
+  it('识别命名空间、ngx 管道与 Angular 显式 $localize id', () => {
+    const calls = extractI18nCallsFromText("t('save', { ns: 'common' })", FUNCS);
+    assert.strictEqual(calls[0].namespace, 'common');
+    assert.strictEqual(extractDefaultNamespace("const { t } = useTranslation('page')"), 'page');
+    assert.deepStrictEqual(extractPipeKeys("{{ 'user.name' | translate }}").map((item) => item.key), ['user.name']);
+    assert.deepStrictEqual(extractLocalizeKeys('$localize`:@@user.name:用户名`').map((item) => item.key), ['user.name']);
+    assert.deepStrictEqual(
+      extractIntlMessageKeys("intl.formatMessage({ defaultMessage: 'Name', id: 'user.name' })").map(
+        (item) => item.key,
+      ),
+      ['user.name'],
+    );
   });
 });
 

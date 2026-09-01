@@ -1,8 +1,8 @@
 import * as vscode from 'vscode';
-import { LocaleEntry } from '../../core/types';
+import { LocaleEntry, ParseContext } from '../../core/types';
 import { escapeRegExp } from '../../util/text';
 
-/** key 分隔符（拍平嵌套对象时使用），与 vue-i18n / i18next 默认一致。 */
+/** key 分隔符默认值，与 vue-i18n / i18next 默认一致。 */
 export const KEY_SEPARATOR = '.';
 
 /**
@@ -17,11 +17,12 @@ export const KEY_SEPARATOR = '.';
 export function flattenLocaleObject(
   value: unknown,
   uri: vscode.Uri,
-  locale: string,
+  ctx: ParseContext,
   rawText: string,
 ): LocaleEntry[] {
   const entries: LocaleEntry[] = [];
   const locator = new KeyLocator(rawText);
+  const sep = ctx.keySeparator || KEY_SEPARATOR;
 
   const walk = (node: unknown, path: string[]): void => {
     if (node === null || node === undefined) {
@@ -31,10 +32,10 @@ export function flattenLocaleObject(
       if (path.length === 0) {
         return;
       }
-      const key = path.join(KEY_SEPARATOR);
       entries.push({
-        key,
-        locale,
+        key: path.join(sep),
+        namespace: ctx.namespace,
+        locale: ctx.locale,
         value: String(node),
         uri,
         range: locator.locate(path),

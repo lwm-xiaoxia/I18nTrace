@@ -2,6 +2,7 @@ import * as assert from 'assert';
 import * as vscode from 'vscode';
 import { isLocaleCode, normalizeLocale } from '../config/localeCodes';
 import { inferLocale } from '../config/ProjectScanner';
+import { analyzeLocalePath } from '../config/localePath';
 
 describe('localeCodes', () => {
   it('isLocaleCode 接受语言 / 区域代码', () => {
@@ -35,5 +36,23 @@ describe('inferLocale', () => {
   it('入口 / 工具文件推断不出 locale（返回文件名）', () => {
     assert.strictEqual(f('/x/src/languages/index.ts'), 'index');
     assert.strictEqual(f('/x/src/languages/helper/translate.ts'), 'translate');
+  });
+
+  it('推断 i18next 多文件命名空间布局', () => {
+    assert.deepStrictEqual(analyzeLocalePath('/x/locales/en/common.json'), {
+      locale: 'en',
+      namespace: 'common',
+      from: 'directory',
+    });
+    assert.deepStrictEqual(analyzeLocalePath('/x/locales/en/pages/home.json'), {
+      locale: 'en',
+      namespace: 'pages/home',
+      from: 'directory',
+    });
+    assert.deepStrictEqual(analyzeLocalePath('/x/i18n/common/en/index.json'), {
+      locale: 'en',
+      namespace: 'common',
+      from: 'directory',
+    });
   });
 });

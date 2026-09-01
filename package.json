@@ -2,8 +2,8 @@
   "name": "i18n-trace",
   "displayName": "I18nTrace",
   "description": "在代码中常驻显示 i18n 译文，并支持按译文反查 key（增强 Ctrl+F）",
-  "version": "1.0.1",
-  "publisher": "i18n-trace",
+  "version": "1.0.2",
+  "publisher": "linwm",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -88,17 +88,26 @@
         "i18nTrace.sourceLocale": {
           "type": "string",
           "default": "",
-          "description": "源语种代码，用于反查与校验。留空自动推断。"
+          "description": "按译文反查时使用的语种代码。留空则使用当前显示语种。"
         },
-        "i18nTrace.keyStyle": {
+        "i18nTrace.keySeparator": {
           "type": "string",
-          "enum": [
-            "auto",
-            "nested",
-            "flat"
+          "default": ".",
+          "minLength": 1,
+          "description": "嵌套语言对象拍平时的 key 分隔符。i18next / vue-i18n 默认使用点号；语言文件内原本就是扁平 key 时会原样保留。"
+        },
+        "i18nTrace.keyPrefixes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "++",
+            "+",
+            "@",
+            "#"
           ],
-          "default": "auto",
-          "description": "语言文件 key 结构：auto 自动，nested 嵌套对象，flat 扁平点号 key。"
+          "description": "仅在原 key 未命中时尝试剥离的自定义 key 前缀。清空可完全关闭该兼容逻辑。"
         },
         "i18nTrace.translationFunctions": {
           "type": "array",
