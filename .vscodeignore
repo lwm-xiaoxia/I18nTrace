@@ -14,3 +14,6 @@ pnpm-workspace.yaml
 **/*.map
 **/*.ts
 plans/**
+scripts/**
+media/icon.svg
+media/icon@256.png

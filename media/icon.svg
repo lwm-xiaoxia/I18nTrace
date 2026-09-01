@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <g fill="none" stroke="#6366F1" stroke-width="16" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M54 62 Q38 62 38 88 L38 112 Q38 128 24 128 Q38 128 38 144 L38 168 Q38 194 54 194"/>
+    <path d="M202 62 Q218 62 218 88 L218 112 Q218 128 232 128 Q218 128 218 144 L218 168 Q218 194 202 194"/>
+  </g>
+  <text x="129" y="165" text-anchor="middle" font-size="104" font-weight="700"
+        font-family="'Microsoft YaHei','PingFang SC','Hiragino Sans GB',sans-serif" fill="#6366F1">文</text>
+</svg>

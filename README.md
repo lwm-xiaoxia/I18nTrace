@@ -93,6 +93,7 @@ Ctrl+F 输入「删除成功」 → 跳到 t('user.deleteSuccess')
 - `I18nTrace: 切换显示语种` — `i18nTrace.switchDisplayLocale`
 - `I18nTrace: 重建索引` — `i18nTrace.reindex`
 - `I18nTrace: 开关译文气泡` — `i18nTrace.toggleInlayHints`
+- `I18nTrace: 显示诊断信息` — `i18nTrace.showDiagnostics`（打印扫到的语言文件、locale、key 数、当前文件每个 `t()` 的命中情况到「I18nTrace」输出频道，排查用）
 
 ## 架构
 
@@ -123,6 +124,6 @@ pnpm run typecheck
 ## 已知限制
 
 - 增强查找范围为**当前文件**；跨文件「按译文搜索」计划后续版本提供
-- JS/TS 语言文件仅静态对象字面量解析，运行时计算的翻译取不到
+- JS/TS 语言文件仅静态解析 `export default { … }` / `module.exports = { … }` 里的对象字面量；通过 `import` 组合子模块、`import.meta.glob` 动态聚合、运行时计算的翻译取不到（碰到时用 `I18nTrace: 显示诊断信息` 排查，或用 `i18nTrace.localeDirs` 直接指向叶子语言文件目录）
 - Angular `$localize` / ngx-translate / `intl.formatMessage` / Svelte 专用写法需后续 Adapter
 - `.vue` / `.svelte` 的 languageId 依赖对应语言扩展；未安装时按文件扩展名兜底识别

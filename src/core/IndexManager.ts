@@ -26,7 +26,9 @@ export class IndexManager {
 
   /** uriString → 该文件推断出的 locale，供单文件更新时复用 */
   private fileLocale = new Map<string, string>();
-  private building = false;
+  /** 进行中的全量构建；并发调用共享同一个 Promise，构建期间又被请求则结束后再跑一次 */
+  private buildInFlight: Promise<void> | null = null;
+  private buildQueued = false;
 
   /** 上一次全量扫描的每文件结果，供 i18nTrace.showDiagnostics 使用 */
   private lastScan: FileDiag[] = [];
@@ -54,54 +56,69 @@ export class IndexManager {
     return this.parsers.supports(path.extname(uri.fsPath).slice(1));
   }
 
-  async rebuild(): Promise<void> {
-    if (this.building) {
+  /**
+   * 全量重建索引。并发安全：构建进行中时再次调用会复用同一个 Promise，
+   * 且在当前构建结束后自动再跑一次（覆盖构建期间发生的配置 / 目录变化）。
+   * 调用方 await 到的 Promise 一定在「索引已就绪」时才 resolve。
+   */
+  rebuild(): Promise<void> {
+    if (this.buildInFlight) {
+      this.buildQueued = true;
+      return this.buildInFlight;
+    }
+    this.buildInFlight = (async () => {
+      try {
+        do {
+          this.buildQueued = false;
+          await this.doRebuild();
+        } while (this.buildQueued);
+      } finally {
+        this.buildInFlight = null;
+      }
+    })();
+    return this.buildInFlight;
+  }
+
+  private async doRebuild(): Promise<void> {
+    this.fileLocale.clear();
+    this.index.clear();
+
+    if (!this.config.value.enabled) {
       return;
     }
-    this.building = true;
-    try {
-      this.fileLocale.clear();
-      this.index.clear();
 
-      if (!this.config.value.enabled) {
-        return;
-      }
+    const cfg = this.config.value;
+    this.lastScanMeta =
+      cfg.localeDirs.length > 0
+        ? `localeDirs = ${JSON.stringify(cfg.localeDirs)}`
+        : `localeFileGlob = ${cfg.localeFileGlob}`;
 
-      const cfg = this.config.value;
-      this.lastScanMeta =
-        cfg.localeDirs.length > 0
-          ? `localeDirs = ${JSON.stringify(cfg.localeDirs)}`
-          : `localeFileGlob = ${cfg.localeFileGlob}`;
+    const files = await this.scanner.scan(cfg);
+    this.lastScan = [];
+    for (const file of files) {
+      this.fileLocale.set(file.uri.toString(), file.locale);
+      const diag = await this.parseInto(file);
+      this.lastScan.push(diag);
+    }
 
-      const files = await this.scanner.scan(cfg);
-      this.lastScan = [];
-      for (const file of files) {
-        this.fileLocale.set(file.uri.toString(), file.locale);
-        const diag = await this.parseInto(file);
-        this.lastScan.push(diag);
+    const summary = `索引完成：${files.length} 个语言文件，${
+      this.index.getLocales().length
+    } 个 locale [${this.index.getLocales().join(', ')}]，共 ${this.lastScan.reduce(
+      (n, d) => n + d.entries,
+      0,
+    )} 条 key`;
+    logger.info(summary);
+    if (files.length === 0) {
+      logger.warn(
+        `没有扫到任何语言文件。检查 ${this.lastScanMeta}，或用设置 i18nTrace.localeDirs 手动指定目录。`,
+      );
+    }
+    for (const d of this.lastScan) {
+      if (d.error) {
+        logger.warn(`${d.path} 解析失败：${d.error}`);
+      } else if (d.entries === 0) {
+        logger.warn(`${d.path} 解析出 0 条 key（格式可能不受支持，如通过 import 组合的模块）`);
       }
-
-      const summary = `索引完成：${files.length} 个语言文件，${this.index
-        .getLocales()
-        .length} 个 locale [${this.index.getLocales().join(', ')}]，共 ${this.lastScan.reduce(
-        (n, d) => n + d.entries,
-        0,
-      )} 条 key`;
-      logger.info(summary);
-      if (files.length === 0) {
-        logger.warn(
-          `没有扫到任何语言文件。检查 ${this.lastScanMeta}，或用设置 i18nTrace.localeDirs 手动指定目录。`,
-        );
-      }
-      for (const d of this.lastScan) {
-        if (d.error) {
-          logger.warn(`${d.path} 解析失败：${d.error}`);
-        } else if (d.entries === 0) {
-          logger.warn(`${d.path} 解析出 0 条 key（格式可能不受支持，如通过 import 组合的模块）`);
-        }
-      }
-    } finally {
-      this.building = false;
     }
   }
 
