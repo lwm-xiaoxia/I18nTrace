@@ -175,7 +175,10 @@ export class FindEnhancer {
     const seen = new Set<string>();
     const result: string[] = [];
     for (const call of calls) {
-      if (matchedKeys.has(call.key) && !seen.has(call.key)) {
+      // call.key 是代码里的字面量（可能带前缀 / 是扁平 key）；解析成索引真实 key 再比对，
+      // 但返回的仍是字面量本身，供 buildKeyLiteralRegex 在源码里精确定位。
+      const resolved = this.indexManager.index.resolveKey(call.key) ?? call.key;
+      if (matchedKeys.has(resolved) && !seen.has(call.key)) {
         seen.add(call.key);
         result.push(call.key);
       }

@@ -44,7 +44,37 @@ describe('I18nIndex', () => {
 
     idx.replaceFile(uri, [entry('user.name', '账号', 'zh-CN')]);
     assert.strictEqual(idx.getEntry('user.name', 'zh-CN')?.value, '账号');
-    assert.strictEqual(idx.getEntry('user.name', 'en'), undefined, '旧文件条目应被替换清除');
+    // replaceFile 应清除旧文件里的 en 条目：该 key 现在只剩 zh-CN
+    assert.deepStrictEqual([...(idx.getAllForKey('user.name')?.keys() ?? [])], ['zh-CN']);
+  });
+
+  it('getEntry 请求的 locale 缺失时回落到其它 locale（气泡尽量有内容）', () => {
+    const idx = new I18nIndex();
+    idx.replaceFile(uri, [entry('only.en', 'English only', 'en')]);
+    assert.strictEqual(idx.getEntry('only.en', 'zh-CN')?.value, 'English only');
+    assert.strictEqual(idx.getEntry('missing.key', 'zh-CN'), undefined);
+  });
+
+  it('resolveKey：前缀剥离 + 扁平 key 回退到 <模块>.<key>', () => {
+    const idx = new I18nIndex();
+    idx.replaceFile(uri, [
+      entry('common.cancel', '取消'),
+      entry('common.confirm', '确认'),
+      entry('article.onlyPrivate', '仅本 App'),
+    ]);
+    assert.strictEqual(idx.resolveKey('article.onlyPrivate'), 'article.onlyPrivate');
+    assert.strictEqual(idx.resolveKey('cancel'), 'common.cancel');
+    assert.strictEqual(idx.resolveKey('+cancel'), 'common.cancel');
+    assert.strictEqual(idx.resolveKey('#confirm'), 'common.confirm');
+    assert.strictEqual(idx.resolveKey('++cancel'), 'common.cancel');
+    assert.strictEqual(idx.resolveKey('nope'), undefined);
+  });
+
+  it('resolveKeyParts：空格分隔多段 key 全部解析', () => {
+    const idx = new I18nIndex();
+    idx.replaceFile(uri, [entry('timezone.timezone', '时区'), entry('common.name', '名称')]);
+    assert.deepStrictEqual(idx.resolveKeyParts('+timezone name'), ['timezone.timezone', 'common.name']);
+    assert.strictEqual(idx.resolveKeyParts('timezone missingPart'), undefined);
   });
 
   it('removeFile 清除该文件条目', () => {

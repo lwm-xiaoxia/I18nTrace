@@ -44,6 +44,10 @@
       {
         "command": "i18nTrace.toggleInlayHints",
         "title": "I18nTrace: 开关译文气泡"
+      },
+      {
+        "command": "i18nTrace.showDiagnostics",
+        "title": "I18nTrace: 显示诊断信息"
       }
     ],
     "keybindings": [
@@ -72,7 +76,7 @@
         },
         "i18nTrace.localeFileGlob": {
           "type": "string",
-          "default": "**/{locale,locales,lang,langs,i18n,translation,translations}/**/*.{json,json5,yaml,yml,js,ts,mjs,cjs}",
+          "default": "**/{locale,locales,lang,langs,language,languages,i18n,i18n-locales,intl,translation,translations,messages}/**/*.{json,json5,yaml,yml,js,ts,mjs,cjs}",
           "description": "自动检测语言文件使用的 glob。"
         },
         "i18nTrace.displayLocale": {

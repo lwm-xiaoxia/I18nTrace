@@ -87,7 +87,7 @@ function read(): I18nTraceConfig {
     localeDirs: c.get('localeDirs', []),
     localeFileGlob: c.get(
       'localeFileGlob',
-      '**/{locale,locales,lang,langs,i18n,translation,translations}/**/*.{json,json5,yaml,yml,js,ts,mjs,cjs}',
+      '**/{locale,locales,lang,langs,language,languages,i18n,i18n-locales,intl,translation,translations,messages}/**/*.{json,json5,yaml,yml,js,ts,mjs,cjs}',
     ),
     displayLocale: c.get('displayLocale', ''),
     sourceLocale: c.get('sourceLocale', ''),

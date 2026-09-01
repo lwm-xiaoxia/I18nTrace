@@ -9,12 +9,14 @@ import { LocaleWatcher } from './watch/LocaleWatcher';
 import { I18nTraceInlayHintsProvider } from './features/InlayHintsProvider';
 import { FindEnhancer } from './features/FindEnhancer';
 import { registerCommands } from './features/commands';
+import { logger } from './util/logger';
 
 let store: DisposableStore | undefined;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   store = new DisposableStore();
   context.subscriptions.push(store);
+  store.add(logger);
 
   const config = store.add(new ConfigService());
   const localeParsers = new LocaleParserRegistry();
@@ -36,7 +38,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // 增强查找 + 辅助命令
   store.add(new FindEnhancer(indexManager, config, frameworkAdapters));
-  store.add(registerCommands(indexManager, config));
+  store.add(registerCommands(indexManager, config, frameworkAdapters));
 
   // 语言文件监听：增量更新索引
   store.add(
@@ -56,8 +58,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // 工作区目录增减 → 全量重建
   store.add(vscode.workspace.onDidChangeWorkspaceFolders(() => void indexManager.rebuild()));
 
-  // 首次构建（不阻塞激活）
-  void indexManager.rebuild();
+  // 首次构建不阻塞激活；完成后主动刷新，避免译文需手动滚动才出现。
+  // （index.onDidChange 也会驱动刷新，这里再显式补一次，语义更清晰。）
+  void indexManager.rebuild().then(() => inlayProvider.refresh());
 }
 
 export function deactivate(): void {

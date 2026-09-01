@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import { I18nTraceConfig } from './ConfigService';
 import { LocaleParserRegistry } from '../adapters/locale/registry';
+import { isLocaleCode, normalizeLocale } from './localeCodes';
 
 export interface LocaleFile {
   uri: vscode.Uri;
@@ -32,8 +33,6 @@ const DEP_TO_FRAMEWORK: Record<string, string> = {
   '@ngx-translate/core': 'ngx-translate',
 };
 
-const LOCALE_CODE_RE = /^[a-z]{2,3}(?:[-_][a-z]{2,4}){0,2}$/i;
-
 /**
  * 扫描工作区，定位语言文件并推断其 locale。
  * 自动检测目录用配置的 glob；当 localeDirs 非空时完全以配置为准。
@@ -55,10 +54,21 @@ export class ProjectScanner {
         if (!this.parsers.supports(ext)) {
           continue;
         }
+        const locale = inferLocale(uri);
+        // 代码文件（js/ts）若既非 locale 命名、父目录也非 locale，多半是 i18n 的
+        // 入口 / 工具文件（index.ts、helper.ts、types.ts），跳过以免污染 locale 列表与日志。
+        // 用户用 localeDirs 显式指定时不做这层过滤（尊重用户判断）。
+        if (
+          config.localeDirs.length === 0 &&
+          /^(js|ts|mjs|cjs)$/.test(ext) &&
+          !isLocaleCode(locale)
+        ) {
+          continue;
+        }
         const rel = path.relative(folder.uri.fsPath, uri.fsPath);
         files.push({
           uri,
-          locale: inferLocale(uri),
+          locale,
           workspaceFolder: folder.uri.fsPath,
           depth: rel.split(/[\\/]/).length,
         });
@@ -132,35 +142,31 @@ export class ProjectScanner {
  *   zh-CN.json                → zh-CN
  *   locales/zh-CN/common.json → zh-CN
  *   i18n/zh/index.ts          → zh
- * 都推断不出时回退为不含扩展名的文件名。
+ *   common.zh-CN.json         → zh-CN
+ * 推断不出时返回不含扩展名的文件名（调用方据此可判断「非语言文件」）。
+ *
+ * 注意：目录段用 isLocaleCode 严格判定，避免把 `src`/`lib`/`app` 当成 locale。
  */
 export function inferLocale(uri: vscode.Uri): string {
   const parts = uri.fsPath.split(/[\\/]/);
   const file = parts[parts.length - 1];
   const stem = file.replace(/\.[^.]+$/, '');
 
-  if (LOCALE_CODE_RE.test(stem)) {
+  if (isLocaleCode(stem)) {
     return normalizeLocale(stem);
   }
-  // 从文件名里挑一段像 locale 的（common.zh-CN.json）
-  const stemSeg = stem.split('.').find((s) => LOCALE_CODE_RE.test(s));
+  // 文件名里挑一段像 locale 的（common.zh-CN.json / zh-CN.messages.json）
+  const stemSeg = stem.split('.').find((s) => isLocaleCode(s));
   if (stemSeg) {
     return normalizeLocale(stemSeg);
   }
-  for (let i = parts.length - 2; i >= 0 && i >= parts.length - 4; i--) {
-    if (LOCALE_CODE_RE.test(parts[i])) {
+  // 逐层向上找 locale 目录（locales/zh-CN/xxx.json）
+  for (let i = parts.length - 2; i >= 0 && i >= parts.length - 5; i--) {
+    if (isLocaleCode(parts[i])) {
       return normalizeLocale(parts[i]);
     }
   }
   return stem;
-}
-
-function normalizeLocale(code: string): string {
-  const m = code.split(/[-_]/);
-  if (m.length === 1) {
-    return m[0].toLowerCase();
-  }
-  return `${m[0].toLowerCase()}-${m.slice(1).join('-').toUpperCase()}`;
 }
 
 function dedupe(uris: vscode.Uri[]): vscode.Uri[] {

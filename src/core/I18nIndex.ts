@@ -22,6 +22,12 @@ export class I18nIndex {
   private searchRows: { norm: string; key: string; locale: string }[] = [];
   /** 已知的全部 locale（派生） */
   private localeSet = new Set<string>();
+  /**
+   * key 末段 → 完整 key 列表（派生）。
+   * 用于「扁平 key 调用」：项目把语言包按模块拆分后，代码里仍写 `t('cancel')`，
+   * 运行时由自定义 t 反查到 `common.cancel`。这里做同样的回退。
+   */
+  private lastSegmentIndex = new Map<string, string[]>();
 
   private readonly onDidChangeEmitter = new vscode.EventEmitter<void>();
   /** 索引内容变化事件（供 InlayHintsProvider 刷新） */
@@ -71,10 +77,74 @@ export class I18nIndex {
       }
     }
 
+    const lastSeg = new Map<string, string[]>();
+    for (const key of byKey.keys()) {
+      const seg = key.includes('.') ? key.slice(key.lastIndexOf('.') + 1) : key;
+      const arr = lastSeg.get(seg);
+      if (arr) {
+        arr.push(key);
+      } else {
+        lastSeg.set(seg, [key]);
+      }
+    }
+
     this.byKey = byKey;
     this.searchRows = rows;
     this.localeSet = locales;
+    this.lastSegmentIndex = lastSeg;
     this.onDidChangeEmitter.fire();
+  }
+
+  /** 代码里可能出现的大小写 / 原样前缀（沿用常见自定义 t 的约定）。 */
+  private static readonly KEY_PREFIXES = ['++', '+', '@', '#'];
+
+  /**
+   * 把「代码里写的 key」解析成「索引里真实存在的 key」。
+   * 处理：前缀（++ / + / @ / #）、首尾空白、扁平 key 回退到 `<模块>.<key>`。
+   * 解析不出返回 undefined（调用方据此决定是否显示 ⚠️）。
+   */
+  resolveKey(rawKey: string): string | undefined {
+    let key = rawKey.trim();
+    for (const p of I18nIndex.KEY_PREFIXES) {
+      if (key.startsWith(p)) {
+        key = key.slice(p.length).trim();
+        break;
+      }
+    }
+    if (!key) {
+      return undefined;
+    }
+    if (this.byKey.has(key)) {
+      return key;
+    }
+    // 扁平 key：末段唯一匹配时回退
+    if (!key.includes('.')) {
+      const candidates = this.lastSegmentIndex.get(key);
+      if (candidates && candidates.length > 0) {
+        return candidates[0];
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * 解析可能由空格分隔的多段 key（自定义 t 支持 `t('+timezone name')` → 逐段翻译再拼接）。
+   * 全部段都能解析才返回；任一段失败返回 undefined。
+   */
+  resolveKeyParts(rawKey: string): string[] | undefined {
+    const tokens = rawKey.trim().split(/\s+/).filter(Boolean);
+    if (tokens.length === 0) {
+      return undefined;
+    }
+    const resolved: string[] = [];
+    for (const token of tokens) {
+      const r = this.resolveKey(token);
+      if (!r) {
+        return undefined;
+      }
+      resolved.push(r);
+    }
+    return resolved;
   }
 
   /** 是否已有任何数据。 */
@@ -96,7 +166,9 @@ export class I18nIndex {
       return perLocale.get(locale);
     }
     if (locale) {
-      return undefined;
+      // 请求的 locale 不存在，返回第一个可用的
+      const first = [...perLocale.keys()].sort()[0];
+      return first ? perLocale.get(first) : undefined;
     }
     // 未指定 locale：返回任意一个稳定结果
     const first = [...perLocale.keys()].sort()[0];
