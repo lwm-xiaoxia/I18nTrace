@@ -131,6 +131,20 @@
           "default": true,
           "description": "key 在语言文件中找不到时，显示 ⚠️ 提示气泡。"
         },
+        "i18nTrace.inlayHints.wrap": {
+          "type": "string",
+          "enum": [
+            "none",
+            "「」",
+            "『』",
+            "【】",
+            "‹›",
+            "()",
+            "[]"
+          ],
+          "default": "none",
+          "description": "给行内译文加一对包裹符，便于和代码里的真实字符串区分。none 表示不加。"
+        },
         "i18nTrace.languageSelector": {
           "type": "array",
           "items": {

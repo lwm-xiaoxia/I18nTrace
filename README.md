@@ -83,6 +83,7 @@ Ctrl+F 输入「删除成功」 → 跳到 t('user.deleteSuccess')
 | `i18nTrace.inlayHints.enabled` | `true` | 显示译文气泡 |
 | `i18nTrace.inlayHints.maxLength` | `40` | 气泡译文截断长度 |
 | `i18nTrace.inlayHints.showWhenMissing` | `true` | 缺失 key 显示 ⚠️ |
+| `i18nTrace.inlayHints.wrap` | `"none"` | 给行内译文加包裹符（`「」` / `『』` / `【】` / `‹›` / `()` / `[]`），便于和代码里的字符串区分 |
 | `i18nTrace.languageSelector` | 见设置 | 生效的语言（languageId） |
 | `i18nTrace.search.enhanceCtrlF` | `true` | Ctrl+F 增强开关 |
 | `i18nTrace.search.maxKeysPerSearch` | `50` | 单次增强查找最多纳入的 key 数 |

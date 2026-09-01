@@ -13,6 +13,8 @@ export interface I18nTraceConfig {
     enabled: boolean;
     maxLength: number;
     showWhenMissing: boolean;
+    /** 译文两侧的包裹符，如 "「」"；"none" 表示不包裹 */
+    wrap: string;
   };
   languageSelector: string[];
   search: {
@@ -104,6 +106,7 @@ function read(): I18nTraceConfig {
       enabled: c.get('inlayHints.enabled', true),
       maxLength: c.get('inlayHints.maxLength', 40),
       showWhenMissing: c.get('inlayHints.showWhenMissing', true),
+      wrap: c.get('inlayHints.wrap', 'none'),
     },
     languageSelector: c.get('languageSelector', [
       'javascript',

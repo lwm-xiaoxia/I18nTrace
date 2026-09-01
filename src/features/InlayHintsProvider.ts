@@ -112,10 +112,14 @@ export class I18nTraceInlayHintsProvider implements vscode.InlayHintsProvider {
               resolvedKeys.map((k, i) => `\`${k}\`: ${escapeMd(okEntries[i].value)}`).join('\n\n'),
             );
       // 命中的不是目标显示语种（回落到了其它 locale）时，前面标出实际语种
-      const prefix =
+      const localeTag =
         displayLocale && primary.locale !== displayLocale ? `${primary.locale}: ` : '';
+      const [open, close] =
+        cfg.inlayHints.wrap && cfg.inlayHints.wrap.length === 2
+          ? [cfg.inlayHints.wrap[0], cfg.inlayHints.wrap[1]]
+          : ['', ''];
       const part = new vscode.InlayHintLabelPart(
-        prefix + truncateForHint(composedValue, cfg.inlayHints.maxLength),
+        `${localeTag}${open}${truncateForHint(composedValue, cfg.inlayHints.maxLength)}${close}`,
       );
       part.tooltip = tooltip;
       // 用 command 而不是 location：location 会让编辑器在该处「转到定义」，
@@ -147,7 +151,7 @@ export class I18nTraceInlayHintsProvider implements vscode.InlayHintsProvider {
         md.appendMarkdown(`${marker} \`${locale}\`  ${escapeMd(entry.value)}\n\n`);
       }
     }
-    md.appendMarkdown(`\n$(link-external) Ctrl/Cmd + 点击打开语言文件`);
+    // 底部不再自加「打开语言文件」提示：设了 command 后 VS Code 会自动显示「执行命令 (ctrl + 点击)」
     md.supportThemeIcons = true;
     md.isTrusted = false;
     return md;
