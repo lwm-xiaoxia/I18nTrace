@@ -1,5 +1,15 @@
 # 更新日志
 
+## 1.0.2
+
+- 重构核心模块：提取 `patterns.ts` 与 `localePath.ts` 独立模块，提升代码可维护性
+- 关键词解析增强：I18nIndex 关键词解析逻辑重写，支持配置前缀剥离、命名空间变体、扁平 key 兜底
+- 配置结构分离：ConfigService 新增「结构型 vs 显示型」变更检测，仅结构变更时触发索引重建
+- 项目扫描改进：ProjectScanner locale/namesapce 推断更精准，支持 i18next 多文件命名空间布局
+- 搜索命中缓存：FindEnhancer 新增 hitCache，Ctrl+F 增强查找性能更佳
+- 适配器全面更新：GenericAdapter 改用新 patterns 模块，VueSfcAdapter 与之配合
+- 测试覆盖率提升：34/35 单元测试通过，新增/更新 patterns 与核心模块测试
+
 ## 1.0.1
 
 - 修复译文悬浮框内容重复显示两遍（tooltip 同时挂在 hint 和 label part 上）
