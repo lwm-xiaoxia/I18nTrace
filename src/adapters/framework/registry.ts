@@ -43,9 +43,6 @@ export class FrameworkAdapterRegistry {
     return mapped ? this.forLanguage(mapped) : undefined;
   }
 
-  get languages(): string[] {
-    return [...new Set(this.adapters.flatMap((a) => a.languages))];
-  }
 }
 
 export function defaultFrameworkAdapters(): FrameworkAdapter[] {

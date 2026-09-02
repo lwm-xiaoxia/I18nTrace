@@ -33,10 +33,13 @@ const DEFAULT_OPTIONS: I18nIndexOptions = { keyPrefixes: ['++', '+', '@', '#'] }
  *
  * 「规范 key」= 有命名空间时 `ns:key`，否则就是 key 本身。
  *
- * 代码引用不在这里维护（搜索范围仅当前文件，按需即时扫描活动文档）。
+ * 代码引用不在这里维护：当前文件查找按需即时扫描活动文档，全局查找把候选 key
+ * 交给 VS Code 自己的搜索引擎，两者都不需要常驻的引用索引。
  *
  * 变更策略：以「文件」为增量单位。某个语言文件变化时调用 replaceFile / removeFile，
- * 随后 rebuild() 从 byUri 全量重算派生结构。语言文件数量与体量都不大，全量重算简单可靠。
+ * 随后 rebuild() 从 byUri 全量重算派生结构 —— 单文件改动下这足够快也足够可靠。
+ * 全量扫描要连写几十上百个文件，必须用 {@link beginBatch} 包起来，否则每写一个文件
+ * 就全量重算一次，并向订阅方连发同样多次刷新。
  */
 export class I18nIndex {
   /** uriString → 该文件贡献的所有条目 */
@@ -57,6 +60,10 @@ export class I18nIndex {
 
   private options: I18nIndexOptions = DEFAULT_OPTIONS;
 
+  /** >0 表示处于批量更新中，期间的写入只记脏不重算 */
+  private batchDepth = 0;
+  private rebuildPending = false;
+
   private readonly onDidChangeEmitter = new vscode.EventEmitter<void>();
   /** 索引内容变化事件（供 InlayHintsProvider 刷新） */
   readonly onDidChange = this.onDidChangeEmitter.event;
@@ -73,19 +80,49 @@ export class I18nIndex {
   /** 用一批新条目替换某个文件的旧条目。 */
   replaceFile(uri: vscode.Uri, entries: LocaleEntry[]): void {
     this.byUri.set(uri.toString(), entries);
-    this.rebuild();
+    this.requestRebuild();
   }
 
   /** 移除某个文件的全部条目（文件被删除时）。 */
   removeFile(uri: vscode.Uri): void {
     if (this.byUri.delete(uri.toString())) {
-      this.rebuild();
+      this.requestRebuild();
     }
   }
 
   /** 清空整个索引（重建前）。 */
   clear(): void {
     this.byUri.clear();
+    this.requestRebuild();
+  }
+
+  /**
+   * 批量更新期间只记脏、不重算，`endBatch` 时统一重算并只广播一次。
+   *
+   * 全量扫描要逐个文件写入，若每次 replaceFile 都全量重算派生结构，
+   * 复杂度是 O(文件数 × 总条目数)，且会向 InlayHintsProvider 连发同样多次刷新。
+   * 必须与 {@link endBatch} 配对，异常路径下用 try/finally 保证配平。
+   */
+  beginBatch(): void {
+    this.batchDepth++;
+  }
+
+  endBatch(): void {
+    if (this.batchDepth === 0) {
+      return;
+    }
+    this.batchDepth--;
+    if (this.batchDepth === 0 && this.rebuildPending) {
+      this.rebuildPending = false;
+      this.rebuild();
+    }
+  }
+
+  private requestRebuild(): void {
+    if (this.batchDepth > 0) {
+      this.rebuildPending = true;
+      return;
+    }
     this.rebuild();
   }
 
@@ -278,16 +315,6 @@ export class I18nIndex {
 
   // ────────────────────────────── 查询 ──────────────────────────────
 
-  /** 是否已有任何数据。 */
-  get isEmpty(): boolean {
-    return this.byKey.size === 0;
-  }
-
-  /** 索引里的 key 总数（诊断用）。 */
-  get size(): number {
-    return this.byKey.size;
-  }
-
   getLocales(): string[] {
     return [...this.localeSet].sort();
   }
@@ -305,8 +332,15 @@ export class I18nIndex {
     if (locale && perLocale.has(locale)) {
       return perLocale.get(locale);
     }
-    const first = [...perLocale.keys()].sort()[0];
-    return first ? perLocale.get(first) : undefined;
+    // 回落取字典序最小的 locale，保证结果稳定。这是每个气泡都会走的热路径，
+    // 直接扫一遍取最小值，不为了一个元素去构造数组再排序。
+    let firstLocale: string | undefined;
+    for (const candidate of perLocale.keys()) {
+      if (firstLocale === undefined || candidate < firstLocale) {
+        firstLocale = candidate;
+      }
+    }
+    return firstLocale === undefined ? undefined : perLocale.get(firstLocale);
   }
 
   /** 取某 key 的全部 locale 条目（用于 tooltip 展示其它语种）。 */

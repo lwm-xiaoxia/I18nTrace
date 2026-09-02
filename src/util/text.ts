@@ -20,11 +20,14 @@ export function escapeRegExp(input: string): string {
  */
 export function truncateForHint(text: string, maxLen: number): string {
   const oneLine = text.replace(/\s+/g, ' ').trim();
+  // 设置界面的 minimum 只拦 UI，手写 settings.json 仍可能填 0 或负数，
+  // 那会让每个气泡都只剩一个省略号。这里兜一个下限。
+  const limit = Number.isFinite(maxLen) ? Math.max(4, Math.floor(maxLen)) : 40;
   let width = 0;
   let out = '';
   for (const ch of oneLine) {
     const w = ch.charCodeAt(0) > 0x2e80 ? 2 : 1;
-    if (width + w > maxLen) {
+    if (width + w > limit) {
       return out + '…';
     }
     width += w;

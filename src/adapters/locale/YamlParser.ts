@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { parseDocument, isScalar, isMap, isSeq, Node } from 'yaml';
 import { LocaleEntry, LocaleParser, ParseContext } from '../../core/types';
+import { logger } from '../../util/logger';
 import { KEY_SEPARATOR } from './flatten';
 
 /**
@@ -15,11 +16,11 @@ export class YamlParser implements LocaleParser {
     try {
       doc = parseDocument(text, { keepSourceTokens: false });
     } catch (err) {
-      console.warn(`[I18nTrace] YAML 解析失败: ${uri.fsPath}`, (err as Error).message);
+      logger.warn(`YAML 解析失败: ${uri.fsPath} — ${(err as Error).message}`);
       return [];
     }
     if (doc.errors.length > 0) {
-      console.warn(`[I18nTrace] YAML 存在错误: ${uri.fsPath}`, doc.errors[0].message);
+      logger.warn(`YAML 存在错误: ${uri.fsPath} — ${doc.errors[0].message}`);
     }
 
     const entries: LocaleEntry[] = [];
@@ -71,15 +72,19 @@ class LineOffsets {
     }
   }
 
+  /** 二分查行：每个叶子节点要查两次（起止），线性扫描在大文件上是 O(节点数 × 行数）。 */
   private toPos(offset: number): vscode.Position {
-    let line = 0;
-    for (let i = 0; i < this.starts.length; i++) {
-      if (this.starts[i] > offset) {
-        break;
+    let lo = 0;
+    let hi = this.starts.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (this.starts[mid] <= offset) {
+        lo = mid;
+      } else {
+        hi = mid - 1;
       }
-      line = i;
     }
-    return new vscode.Position(line, offset - this.starts[line]);
+    return new vscode.Position(lo, offset - this.starts[lo]);
   }
 
   toRange(start: number, end: number): vscode.Range {

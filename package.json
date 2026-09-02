@@ -148,7 +148,8 @@
           "type": "number",
           "default": 40,
           "minimum": 4,
-          "description": "气泡译文超过该长度时截断。"
+          "description": "气泡译文超过该长度时截断。",
+          "maximum": 200
         },
         "i18nTrace.inlayHints.showWhenMissing": {
           "type": "boolean",
@@ -214,7 +215,9 @@
         "i18nTrace.search.maxKeysPerSearch": {
           "type": "number",
           "default": 50,
-          "description": "单次增强查找最多纳入的 key 数量，超出则截断并提示。"
+          "description": "单次增强查找最多纳入的 key 数量，超出则截断并提示。",
+          "minimum": 1,
+          "maximum": 500
         },
         "i18nTrace.search.excludeLocaleFiles": {
           "type": "boolean",

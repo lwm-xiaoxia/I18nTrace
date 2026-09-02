@@ -65,6 +65,8 @@ class KeyLocator {
   private readonly lines: string[];
   /** 每行起始的全局 offset */
   private readonly lineStart: number[];
+  /** key 段 → 匹配它的正则。同一段名在文件里往往出现很多次，编译一次复用。 */
+  private readonly segRe = new Map<string, RegExp>();
 
   constructor(private readonly text: string) {
     this.lines = text.split(/\r?\n/);
@@ -84,32 +86,52 @@ class KeyLocator {
       if (/^\d+$/.test(seg)) {
         continue;
       }
-      const re = new RegExp(`["']${escapeRegExp(seg)}["']\\s*:|(?:^|\\s)${escapeRegExp(seg)}\\s*:`, 'm');
+      // 用 global 正则 + lastIndex 从指定位置起匹配。早先的写法是
+      // slice(searchFrom) 再匹配，等于给每个 key 的每一段都复制一份全文剩余部分，
+      // 大语言文件下是 O(key 数 × 文件长度) 的纯拷贝开销。
+      const re = this.regexFor(seg);
       re.lastIndex = searchFrom;
-      const sub = this.text.slice(searchFrom);
-      const m = re.exec(sub);
+      const m = re.exec(this.text);
       if (!m) {
         return this.offsetToRange(lastOffset);
       }
-      lastOffset = searchFrom + m.index;
-      searchFrom = lastOffset + m[0].length;
+      lastOffset = m.index;
+      searchFrom = m.index + m[0].length;
     }
     return this.offsetToRange(lastOffset);
+  }
+
+  private regexFor(seg: string): RegExp {
+    let re = this.segRe.get(seg);
+    if (!re) {
+      const escaped = escapeRegExp(seg);
+      re = new RegExp(`["']${escaped}["']\\s*:|(?:^|\\s)${escaped}\\s*:`, 'gm');
+      this.segRe.set(seg, re);
+    }
+    return re;
   }
 
   private offsetToRange(offset: number): vscode.Range | undefined {
     if (offset < 0) {
       return undefined;
     }
-    let line = 0;
-    // 线性/二分皆可，语言文件不大，线性足够
-    for (let i = 0; i < this.lineStart.length; i++) {
-      if (this.lineStart[i] > offset) {
-        break;
-      }
-      line = i;
-    }
+    const line = this.lineAt(offset);
     const col = offset - this.lineStart[line];
     return new vscode.Range(line, Math.max(0, col), line, this.lines[line]?.length ?? col);
+  }
+
+  /** 二分查出 offset 所在行：每个 key 都要查一次，线性扫描在大文件上是 O(key 数 × 行数)。 */
+  private lineAt(offset: number): number {
+    let lo = 0;
+    let hi = this.lineStart.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi + 1) >> 1;
+      if (this.lineStart[mid] <= offset) {
+        lo = mid;
+      } else {
+        hi = mid - 1;
+      }
+    }
+    return lo;
   }
 }

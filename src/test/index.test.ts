@@ -114,6 +114,42 @@ describe('I18nIndex', () => {
     assert.strictEqual(idx.hasKey('b'), true);
   });
 
+  it('批量更新期间只广播一次变更', () => {
+    const idx = new I18nIndex();
+    let fired = 0;
+    const sub = idx.onDidChange(() => fired++);
+
+    idx.beginBatch();
+    for (let i = 0; i < 5; i++) {
+      idx.replaceFile(vscode.Uri.file(`/v/f${i}.json`), [entry(`k${i}`, `v${i}`)]);
+    }
+    assert.strictEqual(fired, 0, '批量期间不该广播');
+    idx.endBatch();
+    assert.strictEqual(fired, 1, '结束时只广播一次');
+
+    // 批次结束后索引内容完整，且恢复逐次广播
+    assert.strictEqual(idx.hasKey('k0'), true);
+    assert.strictEqual(idx.hasKey('k4'), true);
+    idx.replaceFile(vscode.Uri.file('/v/f9.json'), [entry('k9', 'v9')]);
+    assert.strictEqual(fired, 2);
+    sub.dispose();
+  });
+
+  it('批量可嵌套，只有最外层结束才重算', () => {
+    const idx = new I18nIndex();
+    let fired = 0;
+    const sub = idx.onDidChange(() => fired++);
+
+    idx.beginBatch();
+    idx.beginBatch();
+    idx.replaceFile(uri, [entry('a', '甲')]);
+    idx.endBatch();
+    assert.strictEqual(fired, 0, '内层结束不该广播');
+    idx.endBatch();
+    assert.strictEqual(fired, 1);
+    sub.dispose();
+  });
+
   it('getMissingLocales 找出漏翻的语种', () => {
     const idx = new I18nIndex();
     const en = vscode.Uri.file('/v/en.json');

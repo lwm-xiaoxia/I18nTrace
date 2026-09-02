@@ -62,6 +62,27 @@ describe('GenericAdapter / extractI18nCallsFromText', () => {
     assert.deepStrictEqual(extractI18nCallsFromText(code, FUNCS).map((item) => item.key), ['real']);
   });
 
+  it('模板正文里的撇号不影响后续行的注释屏蔽', () => {
+    // `It's` 的撇号会开启字符串模式，靠「遇换行即结束」兜住，否则下一行的
+    // <!-- --> 不再被当注释，注释里的调用会漏出来变成错误气泡。
+    const masked = maskComments(
+      [`<p>It's here</p>`, `<!-- t('commented') -->`, `<span>{{ t('real') }}</span>`].join('\n'),
+    );
+    assert.deepStrictEqual(
+      extractI18nCallsFromText(masked, FUNCS).map((item) => item.key),
+      ['real'],
+    );
+  });
+
+  it('真正的字符串仍然屏蔽其中的伪注释', () => {
+    // 同一行内有配对引号 → 正常进入字符串模式，'//' 不能被当行注释
+    const masked = maskComments(`const url = 'a // b'; t('real')`);
+    assert.deepStrictEqual(
+      extractI18nCallsFromText(masked, FUNCS).map((item) => item.key),
+      ['real'],
+    );
+  });
+
   it('识别命名空间、ngx 管道与 Angular 显式 $localize id', () => {
     const calls = extractI18nCallsFromText("t('save', { ns: 'common' })", FUNCS);
     assert.strictEqual(calls[0].namespace, 'common');

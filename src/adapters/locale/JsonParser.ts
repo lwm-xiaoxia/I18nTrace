@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import JSON5 from 'json5';
 import { LocaleEntry, LocaleParser, ParseContext } from '../../core/types';
+import { logger } from '../../util/logger';
 import { flattenLocaleObject } from './flatten';
 
 /**
@@ -16,7 +17,7 @@ export class JsonParser implements LocaleParser {
     try {
       data = JSON5.parse(text);
     } catch (err) {
-      console.warn(`[I18nTrace] JSON 解析失败: ${uri.fsPath}`, (err as Error).message);
+      logger.warn(`JSON 解析失败: ${uri.fsPath} — ${(err as Error).message}`);
       return [];
     }
     return flattenLocaleObject(data, uri, ctx, text);

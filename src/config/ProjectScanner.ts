@@ -4,6 +4,10 @@ import { I18nTraceConfig } from './ConfigService';
 import { LocaleParserRegistry } from '../adapters/locale/registry';
 import { isLocaleCode } from './localeCodes';
 import { analyzeLocalePath } from './localePath';
+import { logger } from '../util/logger';
+
+/** 单次 findFiles 的命中上限，防止在超大仓库里扫穿。 */
+const MAX_LOCALE_FILES = 5000;
 
 export interface LocaleFile {
   uri: vscode.Uri;
@@ -19,22 +23,6 @@ export interface LocaleFile {
    */
   depth: number;
 }
-
-export interface FrameworkHint {
-  workspaceFolder: string;
-  frameworks: string[];
-}
-
-const DEP_TO_FRAMEWORK: Record<string, string> = {
-  'vue-i18n': 'vue-i18n',
-  '@nuxtjs/i18n': 'nuxt-i18n',
-  'react-i18next': 'react-i18next',
-  'next-i18next': 'next-i18next',
-  i18next: 'i18next',
-  'svelte-i18n': 'svelte-i18n',
-  '@angular/localize': 'angular',
-  '@ngx-translate/core': 'ngx-translate',
-};
 
 /**
  * 扫描工作区，定位语言文件并推断其 locale。
@@ -97,47 +85,34 @@ export class ProjectScanner {
         const found = await vscode.workspace.findFiles(
           new vscode.RelativePattern(folder, pattern),
           '**/node_modules/**',
+          MAX_LOCALE_FILES,
         );
+        this.warnIfTruncated(found.length, pattern);
         results.push(...found);
       }
       return dedupe(results);
     }
 
-    return vscode.workspace.findFiles(
+    const found = await vscode.workspace.findFiles(
       new vscode.RelativePattern(folder, config.localeFileGlob),
       '**/node_modules/**',
-      5000,
+      MAX_LOCALE_FILES,
     );
+    this.warnIfTruncated(found.length, config.localeFileGlob);
+    return found;
   }
 
-  /** 读取 package.json 依赖，推断使用的 i18n 框架（当前仅信息用途）。 */
-  async detectFrameworks(): Promise<FrameworkHint[]> {
-    const folders = vscode.workspace.workspaceFolders ?? [];
-    const hints: FrameworkHint[] = [];
-    for (const folder of folders) {
-      const pkgs = await vscode.workspace.findFiles(
-        new vscode.RelativePattern(folder, '**/package.json'),
-        '**/node_modules/**',
-        50,
+  /**
+   * findFiles 命中上限时会静默截断，用户只会看到「有些 key 没气泡」却查不出原因，
+   * 因此把它显式记进输出频道。
+   */
+  private warnIfTruncated(count: number, pattern: string): void {
+    if (count >= MAX_LOCALE_FILES) {
+      logger.warn(
+        `匹配到的语言文件已达上限 ${MAX_LOCALE_FILES}，超出的被忽略（glob: ${pattern}）。` +
+          '建议用 i18nTrace.localeDirs 缩小范围。',
       );
-      const found = new Set<string>();
-      for (const pkgUri of pkgs) {
-        try {
-          const raw = await vscode.workspace.fs.readFile(pkgUri);
-          const json = JSON.parse(Buffer.from(raw).toString('utf8'));
-          const deps = { ...json.dependencies, ...json.devDependencies };
-          for (const dep of Object.keys(deps)) {
-            if (DEP_TO_FRAMEWORK[dep]) {
-              found.add(DEP_TO_FRAMEWORK[dep]);
-            }
-          }
-        } catch {
-          // 忽略无法解析的 package.json
-        }
-      }
-      hints.push({ workspaceFolder: folder.uri.fsPath, frameworks: [...found] });
     }
-    return hints;
   }
 }
 

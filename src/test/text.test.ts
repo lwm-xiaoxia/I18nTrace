@@ -17,4 +17,12 @@ describe('util/text', () => {
     assert.strictEqual(truncateForHint('一二三四五', 6), '一二三…');
     assert.strictEqual(truncateForHint('multi\nline text', 40), 'multi line text');
   });
+
+  it('truncateForHint 对非法长度兜底，不至于只剩省略号', () => {
+    // settings.json 可以手写 0 / 负数 / NaN，绕过设置界面的 minimum
+    for (const bad of [0, -1, Number.NaN]) {
+      const out = truncateForHint('用户名', bad);
+      assert.ok(out.length > 1, `maxLen=${bad} 时不该只剩省略号，实际：${out}`);
+    }
+  });
 });

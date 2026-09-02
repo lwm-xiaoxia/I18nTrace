@@ -1,5 +1,8 @@
 import { escapeRegExp } from '../../util/text';
 
+// maskComments 已移到 util/comments（语言文件解析也要用），此处转出以保持既有引用路径
+export { maskComments } from '../../util/comments';
+
 /** 文本层面提取出的一处 key（偏移量相对传入文本）。 */
 export interface RawCall {
   key: string;
@@ -10,118 +13,6 @@ export interface RawCall {
   keyEnd: number;
   /** Inlay Hint 锚点 offset */
   hintOffset: number;
-}
-
-/**
- * 把注释内容替换成等长空格，保持所有 offset 不变。
- *
- * 目的：避免给注释掉的 `t('x')` 也挂译文气泡。必须做成带状态的扫描而不是正则，
- * 因为要正确跳过字符串内容（`'http://x'` 里的 `//` 不是注释），
- * 同时又要能进入模板串的 `${}` 内部（`` `${t('a.b')} 后缀` `` 是真实调用）。
- */
-export function maskComments(text: string): string {
-  const out = text.split('');
-  const blank = (from: number, to: number): void => {
-    for (let i = from; i < to && i < out.length; i++) {
-      if (out[i] !== '\n' && out[i] !== '\r') {
-        out[i] = ' ';
-      }
-    }
-  };
-
-  // 模式栈：进入模板串的 ${} 时压入代码模式，出来再弹回模板串
-  type Mode = { kind: 'code'; braceDepth: number } | { kind: 'template' } | { kind: 'string'; quote: string };
-  const stack: Mode[] = [{ kind: 'code', braceDepth: 0 }];
-  const top = (): Mode => stack[stack.length - 1];
-
-  let i = 0;
-  while (i < text.length) {
-    const mode = top();
-    const ch = text[i];
-
-    if (mode.kind === 'string') {
-      if (ch === '\\') {
-        i += 2;
-        continue;
-      }
-      if (ch === mode.quote || ch === '\n') {
-        stack.pop();
-      }
-      i++;
-      continue;
-    }
-
-    if (mode.kind === 'template') {
-      if (ch === '\\') {
-        i += 2;
-        continue;
-      }
-      if (ch === '`') {
-        stack.pop();
-        i++;
-        continue;
-      }
-      if (ch === '$' && text[i + 1] === '{') {
-        stack.push({ kind: 'code', braceDepth: 1 });
-        i += 2;
-        continue;
-      }
-      i++;
-      continue;
-    }
-
-    // code 模式
-    if (ch === '/' && text[i + 1] === '/') {
-      let end = text.indexOf('\n', i);
-      if (end === -1) {
-        end = text.length;
-      }
-      blank(i, end);
-      i = end;
-      continue;
-    }
-    if (ch === '/' && text[i + 1] === '*') {
-      let end = text.indexOf('*/', i + 2);
-      end = end === -1 ? text.length : end + 2;
-      blank(i, end);
-      i = end;
-      continue;
-    }
-    if (ch === '<' && text.startsWith('<!--', i)) {
-      let end = text.indexOf('-->', i + 4);
-      end = end === -1 ? text.length : end + 3;
-      blank(i, end);
-      i = end;
-      continue;
-    }
-    if (ch === '"' || ch === "'") {
-      stack.push({ kind: 'string', quote: ch });
-      i++;
-      continue;
-    }
-    if (ch === '`') {
-      stack.push({ kind: 'template' });
-      i++;
-      continue;
-    }
-    if (ch === '{') {
-      mode.braceDepth++;
-      i++;
-      continue;
-    }
-    if (ch === '}') {
-      mode.braceDepth--;
-      // 模板串插值结束：弹回模板串模式
-      if (mode.braceDepth === 0 && stack.length > 1) {
-        stack.pop();
-      }
-      i++;
-      continue;
-    }
-    i++;
-  }
-
-  return out.join('');
 }
 
 /**

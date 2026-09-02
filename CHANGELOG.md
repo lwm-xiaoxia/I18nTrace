@@ -1,5 +1,30 @@
 # 更新日志
 
+## 未发布
+
+### 修复
+
+- 语言文件未保存的编辑现在真正生效：索引改为优先读编辑器缓冲区，此前只读磁盘，与 README 承诺的行为不符
+- JS/TS 语言文件里译文含 `//`（如 `路径 a//b`）不再导致整份文件解析失败、所有 key 一起丢失
+- `const zhCN = {...}; export default zhCN;` 不再误取到文件里其它 `export const` 对象，改为顺着标识符找它的声明
+- 解析警告改写入「I18nTrace」输出频道，此前只进开发者控制台，用户看不到
+- 语言文件数量触及扫描上限时给出提示，此前静默截断；`localeDirs` 分支补上同样的上限
+
+### 性能
+
+- 全量重建包进一个批次：索引只重算一次、只广播一次刷新，此前每写入一个语言文件就全量重算并刷新一次
+- 重建期间保留上一轮索引，气泡不再先消失再出现
+- key 定位改用带 lastIndex 的正则并缓存，去掉每段一次的全文复制；行号查找由线性扫描改二分（实测 2400~9600 key 的语言文件快 1.4~1.6 倍）
+- `getEntry` 回落分支不再为取一个元素构造数组并排序
+
+### 代码质量
+
+- 删除无引用的 `detectFrameworks` / `FrameworkHint` / `I18nIndex.isEmpty` / `I18nIndex.size` / `FrameworkAdapterRegistry.languages`
+- 注释屏蔽逻辑提取到 `src/util/comments.ts`，源码扫描与语言文件解析共用一套
+- 修正 `LocaleWatcher` 的 disposable 数组随配置改动无限增长
+- `truncateForHint` 对非法的 `maxLength` 兜底；数值配置补 `minimum` / `maximum`
+- 更新过时注释（`I18nIndex` 仍称「搜索范围仅当前文件」）
+
 ## 2.1.0
 
 - 新增漏翻提示：key 存在、但没有覆盖索引里全部语种时，译文气泡前加 `🌐`，悬浮框逐行列出缺失语种

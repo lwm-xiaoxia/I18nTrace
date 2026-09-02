@@ -88,25 +88,33 @@ export class IndexManager {
   }
 
   private async doRebuild(): Promise<void> {
-    this.fileInfo.clear();
-    this.index.clear();
+    // 整轮重建包在一个批次里：只重算一次派生结构、只广播一次刷新，
+    // 且扫描期间索引仍持有上一轮数据，气泡不会先消失再出现。
+    this.index.beginBatch();
+    let files: LocaleFile[] = [];
+    try {
+      this.fileInfo.clear();
+      this.index.clear();
 
-    if (!this.config.value.enabled) {
-      return;
-    }
+      if (!this.config.value.enabled) {
+        return;
+      }
 
-    const cfg = this.config.value;
-    this.lastScanMeta =
-      cfg.localeDirs.length > 0
-        ? `localeDirs = ${JSON.stringify(cfg.localeDirs)}`
-        : `localeFileGlob = ${cfg.localeFileGlob}`;
+      const cfg = this.config.value;
+      this.lastScanMeta =
+        cfg.localeDirs.length > 0
+          ? `localeDirs = ${JSON.stringify(cfg.localeDirs)}`
+          : `localeFileGlob = ${cfg.localeFileGlob}`;
 
-    const files = await this.scanner.scan(cfg);
-    this.lastScan = [];
-    for (const file of files) {
-      this.fileInfo.set(file.uri.toString(), file);
-      const diag = await this.parseInto(file);
-      this.lastScan.push(diag);
+      files = await this.scanner.scan(cfg);
+      this.lastScan = [];
+      for (const file of files) {
+        this.fileInfo.set(file.uri.toString(), file);
+        const diag = await this.parseInto(file);
+        this.lastScan.push(diag);
+      }
+    } finally {
+      this.index.endBatch();
     }
 
     const summary = `索引完成：${files.length} 个语言文件，${
@@ -246,8 +254,7 @@ export class IndexManager {
       };
     }
     try {
-      const bytes = await vscode.workspace.fs.readFile(file.uri);
-      const text = Buffer.from(bytes).toString('utf8');
+      const text = await readLocaleText(file.uri);
       const entries = parser.parse(file.uri, text, {
         locale: file.locale,
         namespace: file.namespace,
@@ -315,4 +322,23 @@ export class IndexManager {
 /** Windows 下 relPath 返回反斜杠，glob 统一用正斜杠。 */
 export function toGlobPath(rel: string): string {
   return rel.split(path.sep).join('/');
+}
+
+/**
+ * 读取语言文件文本，编辑器里已打开的以缓冲区内容为准。
+ *
+ * `workspace.fs.readFile` 读的是磁盘，而 LocaleWatcher 监听了
+ * `onDidChangeTextDocument`（未保存的编辑）。只读磁盘的话，改完语言文件必须先保存
+ * 气泡才会变，与「含未保存的编辑」的行为承诺不符。
+ */
+async function readLocaleText(uri: vscode.Uri): Promise<string> {
+  const target = uri.toString();
+  const open = vscode.workspace.textDocuments.find(
+    (doc) => !doc.isClosed && doc.uri.toString() === target,
+  );
+  if (open) {
+    return open.getText();
+  }
+  const bytes = await vscode.workspace.fs.readFile(uri);
+  return Buffer.from(bytes).toString('utf8');
 }

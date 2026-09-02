@@ -242,10 +242,13 @@ export class FindEnhancer {
     document: vscode.TextDocument | undefined,
     phrase: string,
   ): string[] {
+    // workspace 的结果只由索引和语种决定，与当前打开哪个文件无关；
+    // 键里带上文档信息会让每次切文件都白白丢掉缓存。
+    const docPart = scope === 'document' && document;
     const cacheKey = [
       scope,
-      document ? document.uri.toString() : '',
-      document ? String(document.version) : '',
+      docPart ? document.uri.toString() : '',
+      docPart ? String(document.version) : '',
       this.indexManager.resolveSourceLocale() ?? '',
       phrase,
     ].join(' ');

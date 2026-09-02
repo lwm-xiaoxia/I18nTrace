@@ -33,7 +33,7 @@ export class LocaleWatcher {
     this.store.add(
       vscode.workspace.onDidChangeTextDocument((e) => {
         if (this.isTracked(e.document.uri)) {
-          this.schedule(e.document.uri, 'change');
+          this.schedule(e.document.uri);
         }
       }),
     );
@@ -44,14 +44,17 @@ export class LocaleWatcher {
       d.cancel();
     }
     this.pending.clear();
+    // watcherStore 不挂在 store 上（见 rebuildWatchers），单独释放
+    this.watcherStore.dispose();
     this.store.dispose();
   }
 
   private rebuildWatchers(): void {
-    // 清掉旧 watcher：重建一个内部 store
+    // 清掉旧 watcher：重建一个内部 store。
+    // 注意不要把它 add 进 this.store —— 每次结构性配置变化都会重建一个，
+    // 旧的虽已释放却会永远留在 store 的数组里，条目数随配置改动无限增长。
     this.watcherStore.dispose();
     this.watcherStore = new DisposableStore();
-    this.store.add(this.watcherStore);
 
     const folders = vscode.workspace.workspaceFolders ?? [];
     const glob = this.config.value.localeFileGlob;
@@ -61,11 +64,11 @@ export class LocaleWatcher {
         new vscode.RelativePattern(folder, glob),
       );
       this.watcherStore.add(watcher);
-      this.watcherStore.add(watcher.onDidChange((uri) => this.schedule(uri, 'change')));
+      this.watcherStore.add(watcher.onDidChange((uri) => this.schedule(uri)));
       this.watcherStore.add(
         watcher.onDidCreate((uri) => {
           if (this.supportsExt(uri)) {
-            this.schedule(uri, 'change');
+            this.schedule(uri);
           }
         }),
       );
@@ -73,8 +76,8 @@ export class LocaleWatcher {
     }
   }
 
-  private schedule(uri: vscode.Uri, kind: 'change'): void {
-    void kind;
+  /** 同一文件的连续变更合并成一次重解析。 */
+  private schedule(uri: vscode.Uri): void {
     const key = uri.toString();
     let d = this.pending.get(key);
     if (!d) {

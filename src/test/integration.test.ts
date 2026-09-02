@@ -100,6 +100,41 @@ describe('集成：激活 + Inlay Hint + 增强查找', function () {
     assert.ok(labels.some((l) => l.includes('取消')), `i18n=@@id 未命中：${joined}`);
   });
 
+  it('语言文件未保存的编辑也会反映到气泡', async () => {
+    // README 承诺「含未保存的编辑」。索引若只读磁盘，改完必须先保存才生效。
+    const localeUri = fixture('locales/zh-CN.json');
+    const localeDoc = await vscode.workspace.openTextDocument(localeUri);
+    const original = localeDoc.getText();
+    const edit = new vscode.WorkspaceEdit();
+    edit.replace(
+      localeUri,
+      new vscode.Range(0, 0, localeDoc.lineCount, 0),
+      original.replace('"用户名"', '"未保存的新译文"'),
+    );
+
+    try {
+      assert.ok(await vscode.workspace.applyEdit(edit), 'applyEdit 应成功');
+      assert.ok(localeDoc.isDirty, '文档应处于未保存状态');
+
+      await vscode.commands.executeCommand('i18nTrace.reindex');
+      await delay(300);
+
+      const doc = await vscode.workspace.openTextDocument(fixture('src/demo.ts'));
+      const labels = await inlayLabels(doc);
+      assert.ok(
+        labels.some((l) => l.includes('未保存的新译文')),
+        `未保存的编辑没有生效：${labels.join(' | ')}`,
+      );
+    } finally {
+      // 还原缓冲区，避免污染后续用例；不保存，磁盘内容自始至终没变
+      const revert = new vscode.WorkspaceEdit();
+      revert.replace(localeUri, new vscode.Range(0, 0, localeDoc.lineCount, 0), original);
+      await vscode.workspace.applyEdit(revert);
+      await vscode.commands.executeCommand('i18nTrace.reindex');
+      await delay(200);
+    }
+  });
+
   it('漏翻的 key 带图标，语种齐全的不带', async () => {
     // fixtures：user.deleteConfirm 只有 zh-CN / en，fr.yaml 里没有 → 缺 fr
     //           user.name 三个语种都有 → 不该标记

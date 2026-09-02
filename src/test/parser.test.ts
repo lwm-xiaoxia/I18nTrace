@@ -54,6 +54,40 @@ describe('LocaleParser', () => {
     assert.strictEqual(entries.find((e) => e.key === 'greeting')?.value, 'hi');
   });
 
+  it('JsModuleParser：译文里的 // 不被当注释，整份文件不会因此丢光', () => {
+    const text = `export default { ok: '确定', tip: '路径 a//b 无效' };`;
+    const entries = new JsModuleParser().parse(vscode.Uri.file('/v/zh.ts'), text, zhContext);
+    const map = Object.fromEntries(entries.map((e) => [e.key, e.value]));
+    assert.strictEqual(map['tip'], '路径 a//b 无效');
+    assert.strictEqual(map['ok'], '确定', '同文件其它 key 也不该受影响');
+  });
+
+  it('JsModuleParser：真正的注释仍然被屏蔽', () => {
+    const text = [
+      `export default {`,
+      `  // hidden: '不该出现',`,
+      `  /* alsoHidden: '不该出现', */`,
+      `  real: '确定',`,
+      `};`,
+    ].join('\n');
+    const entries = new JsModuleParser().parse(vscode.Uri.file('/v/zh.ts'), text, zhContext);
+    assert.deepStrictEqual(entries.map((e) => e.key), ['real']);
+  });
+
+  it('JsModuleParser：export default 导出标识符时不截到无关对象', () => {
+    // `export default zhCN;` 后面跟着别的对象字面量 —— 从 export default 一路 indexOf('{')
+    // 会截到 helpers，解析出一堆不存在的 key。正确做法是回落到 const 锚点。
+    const text = [
+      `const zhCN = { ok: '确定' };`,
+      `export default zhCN;`,
+      `export const helpers = { formatDate: 'NOT_A_TRANSLATION' };`,
+    ].join('\n');
+    const entries = new JsModuleParser().parse(vscode.Uri.file('/v/zh.ts'), text, zhContext);
+    const map = Object.fromEntries(entries.map((e) => [e.key, e.value]));
+    assert.strictEqual(map['ok'], '确定');
+    assert.ok(!('formatDate' in map), `不该解析到 helpers 里的内容：${JSON.stringify(map)}`);
+  });
+
   it('解析器传递命名空间与可配置 key 分隔符', () => {
     const entries = new JsonParser().parse(uri, JSON.stringify({ user: { name: '用户名' } }), {
       locale: 'zh-CN',

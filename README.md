@@ -94,7 +94,7 @@ Ctrl+Shift+F 输入「删除成功」
 |---|---|
 | JSON / JSON5 | ✅ |
 | YAML / YML | ✅（叶子节点带精确定位） |
-| JS / TS / MJS / CJS | ✅ 静态解析 `export default { ... }` / `module.exports = { ... }`（**不执行代码**；`import` 拼接、展开外部对象、运行时计算值不支持） |
+| JS / TS / MJS / CJS | ✅ 静态解析 `export default { ... }` / `module.exports = { ... }`，以及 `const zhCN = { ... }; export default zhCN;`（**不执行代码**；`import` 拼接、展开外部对象、运行时计算值不支持） |
 
 支持：嵌套 key、扁平 key、多 locale、多个 locale 目录、monorepo、多根工作区，以及 i18next 常见的 `locales/en/common.json`、`locales/en/pages/home.json` 和 `i18n/common/en/index.json` 命名空间布局。
 
@@ -180,6 +180,6 @@ node scripts/release.mjs --publish-only # 补发当前版本到之前跳过/失�
 
 - 全局按译文查找不与实际调用取交集（那需要自建全局代码引用索引），少数情况下会有误报，例如 key 名恰好出现在注释、文档或字符串常量里
 - 全局查找的结果树不显示译文，只显示源码里的 key —— VS Code 的搜索结果树不渲染 Inlay Hint，无扩展点
-- JS/TS 语言文件仅静态解析 `export default { … }` / `module.exports = { … }` 里的对象字面量；通过 `import` 组合子模块、`import.meta.glob` 动态聚合、运行时计算的翻译取不到（碰到时用 `I18nTrace: 显示诊断信息` 排查，或用 `i18nTrace.localeDirs` 直接指向叶子语言文件目录）
+- JS/TS 语言文件只做静态解析，取默认导出的对象字面量（直接写在 `export default` / `module.exports` 后面，或 `export default` 一个在本文件里声明的常量）；通过 `import` 组合子模块、`import.meta.glob` 动态聚合、运行时计算的翻译取不到（碰到时用 `I18nTrace: 显示诊断信息` 排查，或用 `i18nTrace.localeDirs` 直接指向叶子语言文件目录）
 - Angular 无显式 `@@id` 的 `$localize`、Svelte 专用写法需后续 Adapter
 - `.vue` / `.svelte` 的 languageId 依赖对应语言扩展；未安装时按文件扩展名兜底识别
