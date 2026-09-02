@@ -132,6 +132,7 @@ node scripts/release.mjs minor         # 或 major / 1.4.0（指定版本号）
 node scripts/release.mjs --dry-run     # 只演练
 node scripts/release.mjs --ovsx        # 顺带发 Open VSX
 node scripts/release.mjs --no-github   # 只发 Marketplace（各平台可单独关）
+node scripts/release.mjs --publish-only # 补发当前版本到之前跳过/失败的平台（不升版本、不动 git）
 ```
 
 凭据：Marketplace 读环境变量 `VSCE_PAT`，Open VSX 读 `OVSX_PAT`，GitHub 用已登录的 `gh`。缺哪个就跳过哪个平台并提示。
