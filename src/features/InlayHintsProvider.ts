@@ -90,7 +90,7 @@ export class I18nTraceInlayHintsProvider implements vscode.InlayHintsProvider {
         if (cfg.inlayHints.showWhenMissing) {
           const hint = new vscode.InlayHint(
             call.hintPosition,
-            `⚠️ ${call.key}`,
+            `${cfg.inlayHints.missingIcon} ${call.key}`.trim(),
             vscode.InlayHintKind.Type,
           );
           hint.paddingLeft = true;
@@ -107,11 +107,21 @@ export class I18nTraceInlayHintsProvider implements vscode.InlayHintsProvider {
       const primaryKey = resolvedKeys[0];
       const primary = okEntries[0];
       const composedValue = okEntries.map((e) => e.value).join(joiner);
+
+      // 多段 key 时，任一段漏了某语种就算这条调用漏翻，合并去重后展示
+      const missingLocales = [
+        ...new Set(resolvedKeys.flatMap((key) => index.getMissingLocales(key))),
+      ].sort();
+      const incomplete = cfg.inlayHints.showWhenIncomplete && missingLocales.length > 0;
+
       const tooltip =
         resolvedKeys.length === 1
-          ? this.buildTooltip(primaryKey, displayLocale, resolutions[0].candidates)
+          ? this.buildTooltip(primaryKey, displayLocale, resolutions[0].candidates, missingLocales)
           : new vscode.MarkdownString(
-              resolvedKeys.map((k, i) => `\`${k}\`: ${escapeMd(okEntries[i].value)}`).join('\n\n'),
+              resolvedKeys.map((k, i) => `\`${k}\`: ${escapeMd(okEntries[i].value)}`).join('\n\n') +
+                (missingLocales.length > 0
+                  ? `\n\n缺少语种：${missingLocales.map((l) => `\`${l}\``).join('、')}`
+                  : ''),
             );
       // 命中的不是目标显示语种（回落到了其它 locale）时，前面标出实际语种
       const localeTag =
@@ -120,8 +130,12 @@ export class I18nTraceInlayHintsProvider implements vscode.InlayHintsProvider {
         cfg.inlayHints.wrap && cfg.inlayHints.wrap.length === 2
           ? [cfg.inlayHints.wrap[0], cfg.inlayHints.wrap[1]]
           : ['', ''];
+      // 漏翻标记放在最前面，和 localeTag 并存时形如「🌐 en: Save」
+      const incompleteTag = incomplete && cfg.inlayHints.incompleteIcon
+        ? `${cfg.inlayHints.incompleteIcon} `
+        : '';
       const part = new vscode.InlayHintLabelPart(
-        `${localeTag}${open}${truncateForHint(composedValue, cfg.inlayHints.maxLength)}${close}`,
+        `${incompleteTag}${localeTag}${open}${truncateForHint(composedValue, cfg.inlayHints.maxLength)}${close}`,
       );
       part.tooltip = tooltip;
       // 用 command 而不是 location：location 会让编辑器在该处「转到定义」，
@@ -146,6 +160,7 @@ export class I18nTraceInlayHintsProvider implements vscode.InlayHintsProvider {
     key: string,
     displayLocale: string | undefined,
     candidates: readonly string[],
+    missingLocales: readonly string[] = [],
   ): vscode.MarkdownString {
     const all = this.indexManager.index.getAllForKey(key);
     const md = new vscode.MarkdownString();
@@ -156,6 +171,10 @@ export class I18nTraceInlayHintsProvider implements vscode.InlayHintsProvider {
         const marker = locale === displayLocale ? '$(circle-filled)' : '$(circle)';
         md.appendMarkdown(`${marker} \`${locale}\`  ${escapeMd(entry.value)}\n\n`);
       }
+    }
+    // 漏翻的语种同样逐行列出，和已有译文用同一套排版，一眼能看出缺哪几个
+    for (const locale of missingLocales) {
+      md.appendMarkdown(`$(circle-slash) \`${locale}\`  *未翻译*\n\n`);
     }
     if (candidates.length > 1) {
       md.appendMarkdown(

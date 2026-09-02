@@ -155,6 +155,21 @@
           "default": true,
           "description": "key 在语言文件中找不到时，显示 ⚠️ 提示气泡。"
         },
+        "i18nTrace.inlayHints.showWhenIncomplete": {
+          "type": "boolean",
+          "default": true,
+          "description": "key 存在、但没有覆盖全部语种时，在译文气泡前标出漏翻图标（单语种项目不会触发）。"
+        },
+        "i18nTrace.inlayHints.missingIcon": {
+          "type": "string",
+          "default": "⚠️",
+          "description": "key 在语言文件里完全找不到时的提示图标。留空则只显示 key 本身。"
+        },
+        "i18nTrace.inlayHints.incompleteIcon": {
+          "type": "string",
+          "default": "🌐",
+          "description": "key 存在但缺少部分语种时的提示图标。留空则不显示图标（漏翻仍会在悬浮框里列出）。"
+        },
         "i18nTrace.inlayHints.wrap": {
           "type": "string",
           "enum": [

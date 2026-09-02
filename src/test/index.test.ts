@@ -113,4 +113,25 @@ describe('I18nIndex', () => {
     assert.strictEqual(idx.hasKey('a'), false);
     assert.strictEqual(idx.hasKey('b'), true);
   });
+
+  it('getMissingLocales 找出漏翻的语种', () => {
+    const idx = new I18nIndex();
+    const en = vscode.Uri.file('/v/en.json');
+    const fr = vscode.Uri.file('/v/fr.json');
+    idx.replaceFile(uri, [entry('a', '甲'), entry('b', '乙')]);
+    idx.replaceFile(en, [entry('a', 'A', 'en'), entry('b', 'B', 'en')]);
+    idx.replaceFile(fr, [entry('a', 'A-fr', 'fr')]);
+
+    assert.deepStrictEqual(idx.getMissingLocales('a'), [], '三语齐全不该报缺');
+    assert.deepStrictEqual(idx.getMissingLocales('b'), ['fr'], 'b 只缺 fr');
+  });
+
+  it('getMissingLocales：单语种项目与不存在的 key 都返回空', () => {
+    const idx = new I18nIndex();
+    idx.replaceFile(uri, [entry('a', '甲')]);
+    // 只有一个 locale 时不存在「缺某语种」，不能凭空报缺
+    assert.deepStrictEqual(idx.getMissingLocales('a'), []);
+    // key 压根不存在属于「key 缺失」，由调用方另作处理，不混进漏翻
+    assert.deepStrictEqual(idx.getMissingLocales('nope'), []);
+  });
 });

@@ -16,6 +16,12 @@ export interface I18nTraceConfig {
     enabled: boolean;
     maxLength: number;
     showWhenMissing: boolean;
+    /** key 存在、但没覆盖全部语种时，在气泡前标出漏翻 */
+    showWhenIncomplete: boolean;
+    /** key 在语言文件里完全不存在时的提示图标 */
+    missingIcon: string;
+    /** key 存在但缺部分语种时的提示图标 */
+    incompleteIcon: string;
     /** 译文两侧的包裹符，如 "「」"；"none" 表示不包裹 */
     wrap: string;
   };
@@ -124,6 +130,9 @@ function read(): I18nTraceConfig {
       enabled: c.get('inlayHints.enabled', true),
       maxLength: c.get('inlayHints.maxLength', 40),
       showWhenMissing: c.get('inlayHints.showWhenMissing', true),
+      showWhenIncomplete: c.get('inlayHints.showWhenIncomplete', true),
+      missingIcon: c.get('inlayHints.missingIcon', '⚠️'),
+      incompleteIcon: c.get('inlayHints.incompleteIcon', '🌐'),
       wrap: c.get('inlayHints.wrap', 'none'),
     },
     languageSelector: c.get('languageSelector', [

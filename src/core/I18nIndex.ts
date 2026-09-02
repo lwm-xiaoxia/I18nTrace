@@ -314,6 +314,21 @@ export class I18nIndex {
     return this.byKey.get(key);
   }
 
+  /**
+   * 该 key 相对「索引里已知的全部 locale」缺了哪几个语种（漏翻检测）。
+   *
+   * 已知 locale 只来自实际扫到的语言文件，所以单语种项目恒返回空数组，
+   * 不会凭空报缺。key 完全不存在时同样返回空数组 —— 那是「key 缺失」，
+   * 由调用方按另一种状态处理，不该和「漏翻」混在一起。
+   */
+  getMissingLocales(key: string): string[] {
+    const perLocale = this.byKey.get(key);
+    if (!perLocale) {
+      return [];
+    }
+    return this.getLocales().filter((locale) => !perLocale.has(locale));
+  }
+
   hasKey(key: string): boolean {
     return this.byKey.has(key);
   }

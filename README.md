@@ -16,7 +16,8 @@ $t('user.deleteSuccess')  删除成功
 - 不修改源码，纯 Inlay Hint 渲染，跟随 VS Code 原生风格
 - 支持切换显示语种：命令面板 `I18nTrace: 切换显示语种`
 - 语言文件修改后自动刷新（含未保存的编辑）
-- 找不到 key 时显示 `⚠️ <key>`（可关）
+- 找不到 key 时显示 `⚠️ <key>`（图标可换、可关）
+- **漏翻提示**：key 存在但没覆盖全部语种时，气泡前加 `🌐`，悬浮框里逐行列出缺哪几个语种（图标可换、可关）
 - `Ctrl/Cmd` + 点击气泡，跳转到语言文件中该 key 的定义位置
 - 鼠标悬停气泡查看完整译文与其它语种
 
@@ -111,7 +112,10 @@ Ctrl+Shift+F 输入「删除成功」
 | `i18nTrace.translationFunctions` | `["t","$t","$tc","i18n.t","i18n.global.t","translate","$translate","translate.instant","translate.get","translate.stream","transloco.translate"]` | 识别为翻译函数的名称（支持点号形式） |
 | `i18nTrace.inlayHints.enabled` | `true` | 显示译文气泡 |
 | `i18nTrace.inlayHints.maxLength` | `40` | 气泡译文截断长度 |
-| `i18nTrace.inlayHints.showWhenMissing` | `true` | 缺失 key 显示 ⚠️ |
+| `i18nTrace.inlayHints.showWhenMissing` | `true` | 语言文件里完全找不到该 key 时提示 |
+| `i18nTrace.inlayHints.showWhenIncomplete` | `true` | key 存在但缺部分语种时提示（漏翻检测） |
+| `i18nTrace.inlayHints.missingIcon` | `"⚠️"` | key 完全缺失的图标；留空只显示 key |
+| `i18nTrace.inlayHints.incompleteIcon` | `"🌐"` | 漏翻的图标；留空则只在悬浮框里提示 |
 | `i18nTrace.inlayHints.wrap` | `"none"` | 给行内译文加包裹符（`「」` / `『』` / `【】` / `‹›` / `()` / `[]`），便于和代码里的字符串区分 |
 | `i18nTrace.languageSelector` | 见设置 | 生效的语言（languageId） |
 | `i18nTrace.search.enhanceCtrlF` | `true` | Ctrl+F 增强开关（当前文件） |

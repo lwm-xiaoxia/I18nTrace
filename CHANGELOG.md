@@ -1,5 +1,14 @@
 # 更新日志
 
+## 2.1.0
+
+- 新增漏翻提示：key 存在、但没有覆盖索引里全部语种时，译文气泡前加 `🌐`，悬浮框逐行列出缺失语种
+  - 单语种项目与「key 完全不存在」都不会触发，后者仍按原有的 `⚠️` 处理
+  - 多段 key 中任一段漏翻即标记，缺失语种合并去重
+  - `i18nTrace.inlayHints.showWhenIncomplete` 可关闭
+- 提示图标改为可配置：`i18nTrace.inlayHints.missingIcon`（默认 `⚠️`）、`i18nTrace.inlayHints.incompleteIcon`（默认 `🌐`），留空即不显示图标
+- 测试：50 项全部通过，新增 `getMissingLocales` 与漏翻标记用例
+
 ## 2.0.0
 
 - 新增「按译文全局查找」：`Ctrl+Shift+F` 收词后把译文解析成一组 key，生成正则交给原生「在文件中查找」面板

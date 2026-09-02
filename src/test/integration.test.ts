@@ -100,6 +100,23 @@ describe('集成：激活 + Inlay Hint + 增强查找', function () {
     assert.ok(labels.some((l) => l.includes('取消')), `i18n=@@id 未命中：${joined}`);
   });
 
+  it('漏翻的 key 带图标，语种齐全的不带', async () => {
+    // fixtures：user.deleteConfirm 只有 zh-CN / en，fr.yaml 里没有 → 缺 fr
+    //           user.name 三个语种都有 → 不该标记
+    const doc = await vscode.workspace.openTextDocument(fixture('src/Demo.vue'));
+    const labels = await inlayLabels(doc);
+    const joined = labels.join(' | ');
+
+    const confirm = labels.find((l) => l.includes('确认删除'));
+    assert.ok(confirm, `未找到 user.deleteConfirm 的气泡：${joined}`);
+    assert.ok(confirm!.includes('🌐'), `漏翻的 key 应带图标：${confirm}`);
+
+    const name = labels.find((l) => l.includes('用户名'));
+    if (name) {
+      assert.ok(!name.includes('🌐'), `语种齐全的 key 不该带图标：${name}`);
+    }
+  });
+
   it('i18nTrace.find 命令已注册', async () => {
     const all = await vscode.commands.getCommands(true);
     assert.ok(all.includes('i18nTrace.find'));
