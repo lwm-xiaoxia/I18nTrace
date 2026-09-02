@@ -6,16 +6,20 @@
 //   node scripts/release.mjs 1.2.0          # 指定版本号（必须比当前大）
 //
 // 常用开关：
-//   --dry-run          只演练，不改文件、不推送、不发布
-//   --no-marketplace   跳过 VS Code Marketplace
-//   --no-github        跳过 GitHub Release
+//   --dry-run          只演练，不改文件、不 commit、不发布
+//   --no-marketplace   不发 VS Code Marketplace
+//   --no-github        不发 GitHub Release
 //   --ovsx             额外发布到 Open VSX（默认不发）
-//   --no-git           不 commit / tag / push（只打包发布）
-//   --publish-only    不升版本 / 不动 git，只把当前版本补发到之前跳过或失败的平台
+//   --no-git           不 commit / tag / push（版本号仍会写进 package.json）
+//   --publish-only     不升版本 / 不动 git，把当前版本补发到之前跳过或失败的平台
+//   --allow-skip       想发的平台缺凭据时，跳过它继续（默认：交互确认 / --yes 下直接中止）
 //   --skip-checks      跳过 typecheck + lint + build 预检
 //   --yes              不再交互确认
 //
-// 需要的凭据（缺哪个就跳过哪个平台，并给出提示）：
+// 顺序（关键）：写版本 → 打包 → 本地 commit + tag → 发布所有平台 →
+//               全部成功才 git push；任一失败则不 push，并给出回退 / 补发指引。
+//
+// 凭据：
 //   Marketplace : 环境变量 VSCE_PAT
 //   Open VSX    : 环境变量 OVSX_PAT
 //   GitHub      : 本机已 `gh auth login`（无需 token）
@@ -36,16 +40,14 @@ const flags = new Set(argv.filter((a) => a.startsWith('--')));
 const positional = argv.filter((a) => !a.startsWith('--'));
 
 const dryRun = flags.has('--dry-run');
-const doMarketplace = !flags.has('--no-marketplace');
-const doGithub = !flags.has('--no-github');
 const doOvsx = flags.has('--ovsx');
 const doGit = !flags.has('--no-git');
 const skipChecks = flags.has('--skip-checks');
 const assumeYes = flags.has('--yes');
-// 只补发：跳过版本号计算与 git 操作，把 package.json 当前版本发到还没发的平台
+const allowSkip = flags.has('--allow-skip');
 const publishOnly = flags.has('--publish-only');
 
-// ── 计算新版本号 ───────────────────────────────────────────
+// ── 计算版本号 ─────────────────────────────────────────────
 const current = pkg.version;
 const parts = current.split('.').map(Number);
 if (parts.length !== 3 || parts.some((n) => !Number.isInteger(n))) {
@@ -69,8 +71,9 @@ if (publishOnly) {
   }
 }
 const tag = `v${next}`;
+const willGit = doGit && !publishOnly && !dryRun;
 
-// ── 前置检查：工作区干净（补发模式允许带未提交改动）──────
+// ── 前置检查：工作区干净 ──────────────────────────────────
 if (existsSync(join(root, '.git')) && !dryRun && !publishOnly) {
   const dirty = run('git', ['status', '--porcelain'], { capture: true }).trim();
   if (dirty) {
@@ -78,30 +81,73 @@ if (existsSync(join(root, '.git')) && !dryRun && !publishOnly) {
   }
 }
 
+// ── 前置检查：目标平台 + 凭据 ─────────────────────────────
+// 每个平台：enabled（用户没 --no-X）→ 检查凭据 → 决定 publish / skip / abort
+const platforms = [
+  {
+    name: 'Marketplace',
+    enabled: !flags.has('--no-marketplace'),
+    ready: () => !!process.env.VSCE_PAT,
+    missing: 'VSCE_PAT 环境变量',
+    url: `https://marketplace.visualstudio.com/items?itemName=${pkg.publisher}.${pkg.name}`,
+  },
+  {
+    name: 'Open VSX',
+    enabled: doOvsx,
+    ready: () => !!process.env.OVSX_PAT,
+    missing: 'OVSX_PAT 环境变量',
+    url: `https://open-vsx.org/extension/${pkg.publisher}/${pkg.name}`,
+  },
+  {
+    name: 'GitHub',
+    enabled: !flags.has('--no-github'),
+    ready: () => ghReady(),
+    missing: 'gh 未安装或未登录（gh auth login）',
+    url: `${(pkg.repository?.url || '').replace(/\.git$/, '')}/releases/tag/${tag}`,
+  },
+];
+
+const wanted = platforms.filter((p) => p.enabled);
+const missingCred = wanted.filter((p) => !p.ready());
+// --yes 且没 --allow-skip：缺凭据直接中止，避免脚本化运行时半发布
+if (missingCred.length > 0 && assumeYes && !allowSkip && !dryRun) {
+  fail(
+    '以下平台缺凭据，无法发布：\n' +
+      missingCred.map((p) => `  - ${p.name}：${p.missing}`).join('\n') +
+      '\n配好凭据后重试，或加 --allow-skip 跳过它们，或用 --no-xxx 明确关闭。',
+  );
+}
+const targets = wanted.filter((p) => p.ready());
+const skipped = wanted.filter((p) => !p.ready());
+
 const changelogNote = extractChangelogSection(next);
 
+// ── 概览 + 确认 ────────────────────────────────────────────
 console.log('──────────────────────────────────────────');
 console.log(
-  publishOnly ? `  补发 ${pkg.name}   ${current}（不升版本、不动 git）` : `  发布 ${pkg.name}   ${current} → ${next}`,
+  publishOnly
+    ? `  补发 ${pkg.name}   ${current}（不升版本、不动 git）`
+    : `  发布 ${pkg.name}   ${current} → ${next}`,
 );
-console.log(
-  `  目标：${[doMarketplace && 'Marketplace', doGithub && 'GitHub', doOvsx && 'Open VSX']
-    .filter(Boolean)
-    .join(' + ') || '（无）'}`,
-);
-console.log(
-  `  凭据：VSCE_PAT ${envMark('VSCE_PAT')}   OVSX_PAT ${envMark('OVSX_PAT')}   gh ${ghState() === 'ok' ? '✔' : '—'}`,
-);
-if (!changelogNote) {
+console.log(`  发布目标：${targets.map((p) => p.name).join(' + ') || '（无）'}`);
+if (skipped.length > 0) {
+  console.log(`  将跳过：  ${skipped.map((p) => `${p.name}（缺 ${p.missing}）`).join('，')}`);
+}
+if (willGit) console.log(`  git：     本地 commit + tag ${tag}，全部发布成功后才 push`);
+if (!changelogNote && targets.some((p) => p.name === 'GitHub')) {
   console.log(`  ⚠ CHANGELOG.md 没有 "## ${next}" 小节，GitHub 发布说明将由 git 提交自动生成`);
 }
 if (dryRun) console.log('  [dry-run] 只演练，不会真正改动 / 发布');
 console.log('──────────────────────────────────────────');
 
+if (targets.length === 0 && !dryRun) {
+  fail('没有可发布的平台。检查凭据，或用 --no-xxx 明确你的意图。');
+}
+
 if (!assumeYes && !dryRun) {
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
-  const ans = (await rl.question('确认继续？(y/N) ')).trim().toLowerCase();
-  rl.close();
+  const ans = await ask(
+    skipped.length > 0 ? '有平台将被跳过（见上）。确认继续？(y/N) ' : '确认继续？(y/N) ',
+  );
   if (ans !== 'y' && ans !== 'yes') process.exit(0);
 }
 
@@ -113,125 +159,133 @@ if (!skipChecks) {
   run('node', ['esbuild.js', '--production']);
 }
 
-// ── 写版本号（补发模式不改）───────────────────────────────
-if (!publishOnly) {
+// ── 写版本号 ───────────────────────────────────────────────
+if (!publishOnly && !dryRun) {
   step(`写入 version = ${next}`);
-  if (!dryRun) {
-    pkg.version = next;
-    writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n');
-  }
+  pkg.version = next;
+  writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n');
 }
 
-// ── 打包（补发模式：已有同版本 vsix 就直接复用）────────────
+// ── 打包 ───────────────────────────────────────────────────
 const vsixName = `${pkg.name}-${next}.vsix`;
 const vsixPath = join(root, vsixName);
 if (publishOnly && existsSync(vsixPath)) {
   step(`复用已有产物 ${vsixName}`);
-} else {
+} else if (!dryRun) {
   step('vsce package');
   for (const f of readdirSync(root).filter((f) => f.endsWith('.vsix'))) {
-    if (!dryRun) unlinkSync(join(root, f));
+    unlinkSync(join(root, f));
   }
-  if (!dryRun) {
-    run('node', ['./node_modules/@vscode/vsce/vsce', 'package', '--no-dependencies', '-o', vsixPath]);
-  } else {
-    console.log(`  [dry-run] 会生成 ${vsixName}`);
-  }
+  run('node', ['./node_modules/@vscode/vsce/vsce', 'package', '--no-dependencies', '-o', vsixPath]);
+} else {
+  step(`[dry-run] 会生成 ${vsixName}`);
 }
 
-// ── git 提交 + tag + push（补发模式跳过）──────────────────
-if (doGit && !dryRun && !publishOnly) {
-  step(`git commit + tag ${tag} + push`);
+// ── 本地 commit + tag（先不 push）─────────────────────────
+let committed = false;
+if (willGit) {
+  step(`git commit + tag ${tag}（本地）`);
   run('git', ['add', 'package.json', 'CHANGELOG.md']);
   run('git', ['commit', '-m', `chore: release ${tag}`]);
   run('git', ['tag', tag]);
+  committed = true;
+}
+
+// ── 逐平台发布 ─────────────────────────────────────────────
+const results = [];
+for (const p of targets) {
+  step(`发布到 ${p.name}`);
+  if (dryRun) {
+    results.push([p.name, 'dry-run', vsixName]);
+    continue;
+  }
+  try {
+    publishTo(p.name);
+    results.push([p.name, 'ok', p.url]);
+  } catch (e) {
+    results.push([p.name, 'fail', firstLine(e)]);
+  }
+}
+for (const p of skipped) {
+  results.push([p.name, 'skip', `缺 ${p.missing}`]);
+}
+
+const anyOk = results.some((r) => r[1] === 'ok');
+const anyFail = results.some((r) => r[1] === 'fail');
+
+// ── 全部成功才 push ───────────────────────────────────────
+let pushed = false;
+if (committed && !anyFail && targets.length > 0) {
+  step('全部发布成功 → git push');
   run('git', ['push']);
   run('git', ['push', 'origin', tag]);
-}
-
-// ── 发布 ───────────────────────────────────────────────────
-const results = [];
-
-if (doMarketplace) {
-  step('发布到 VS Code Marketplace');
-  if (!process.env.VSCE_PAT) {
-    results.push(['Marketplace', 'skip', '缺 VSCE_PAT 环境变量']);
-  } else if (dryRun) {
-    results.push(['Marketplace', 'dry-run', vsixName]);
-  } else {
-    try {
-      run('node', [
-        './node_modules/@vscode/vsce/vsce',
-        'publish',
-        '--no-dependencies',
-        '--skip-duplicate',
-        '--packagePath',
-        vsixPath,
-      ]);
-      results.push([
-        'Marketplace',
-        'ok',
-        `https://marketplace.visualstudio.com/items?itemName=${pkg.publisher}.${pkg.name}`,
-      ]);
-    } catch (e) {
-      results.push(['Marketplace', 'fail', firstLine(e)]);
-    }
-  }
-}
-
-if (doOvsx) {
-  step('发布到 Open VSX');
-  if (!process.env.OVSX_PAT) {
-    results.push(['Open VSX', 'skip', '缺 OVSX_PAT 环境变量']);
-  } else if (dryRun) {
-    results.push(['Open VSX', 'dry-run', vsixName]);
-  } else {
-    try {
-      run('npx', ['ovsx', 'publish', vsixPath], { shell: true, env: { ...process.env, OVSX_PAT: process.env.OVSX_PAT } });
-      results.push(['Open VSX', 'ok', `https://open-vsx.org/extension/${pkg.publisher}/${pkg.name}`]);
-    } catch (e) {
-      results.push(['Open VSX', 'fail', firstLine(e)]);
-    }
-  }
-}
-
-if (doGithub) {
-  step(`发布 GitHub Release ${tag}`);
-  if (ghState() !== 'ok') {
-    results.push(['GitHub', 'skip', 'gh 未安装或未登录']);
-  } else if (dryRun) {
-    results.push(['GitHub', 'dry-run', vsixName]);
-  } else {
-    try {
-      const repoArg = repoSlug();
-      const releaseExists = tryRun('gh', ['release', 'view', tag, ...(repoArg ? ['--repo', repoArg] : [])]);
-      if (releaseExists) {
-        // 补发场景：release 已存在，只更新 vsix 附件
-        run('gh', ['release', 'upload', tag, vsixPath, '--clobber', ...(repoArg ? ['--repo', repoArg] : [])]);
-      } else {
-        const title = `${pkg.displayName || pkg.name} ${tag}`;
-        const args = ['release', 'create', tag, vsixPath, '--title', title];
-        if (changelogNote) args.push('--notes', changelogNote);
-        else args.push('--generate-notes');
-        if (repoArg) args.push('--repo', repoArg);
-        run('gh', args);
-      }
-      const repoUrl = (pkg.repository?.url || '').replace(/\.git$/, '');
-      results.push(['GitHub', 'ok', `${repoUrl}/releases/tag/${tag}`]);
-    } catch (e) {
-      results.push(['GitHub', 'fail', firstLine(e)]);
-    }
-  }
+  pushed = true;
 }
 
 // ── 汇总 ───────────────────────────────────────────────────
 console.log('\n──────────────── 结果 ────────────────');
-for (const [platform, state, detail] of results) {
+for (const [name, state, detail] of results) {
   const mark = { ok: '✔', fail: '✗', skip: '—', 'dry-run': '·' }[state] ?? '?';
-  console.log(`  ${mark} ${platform.padEnd(12)} ${detail}`);
+  console.log(`  ${mark} ${name.padEnd(12)} ${detail}`);
+}
+if (committed) {
+  console.log(`  ${pushed ? '✔' : '·'} git          ${pushed ? `已推送 commit + ${tag}` : `本地已 commit + tag ${tag}（未 push）`}`);
 }
 console.log(`\n本地产物：${vsixName}`);
-if (results.some((r) => r[1] === 'fail')) process.exit(1);
+
+// ── 失败 / 部分成功的收尾指引 ────────────────────────────
+if (anyFail && committed && !pushed) {
+  console.log('\n──────────────── 收尾 ────────────────');
+  if (!anyOk) {
+    console.log('  所有平台都没发出去。回退本地这次发布提交：');
+    console.log(`    git reset --hard HEAD~1 && git tag -d ${tag}`);
+  } else {
+    console.log('  部分平台已发布，不要回退。修好失败的平台后：');
+    console.log(`    node scripts/release.mjs --publish-only   # 补发失败/跳过的平台`);
+    console.log(`    git push && git push origin ${tag}        # 手动把本次提交推上去`);
+  }
+}
+
+if (anyFail || (skipped.length > 0 && !allowSkip)) {
+  console.log('\n部分平台未发布（见上），退出码 1。');
+  process.exit(1);
+}
+
+// ── 具体发布动作 ──────────────────────────────────────────
+function publishTo(name) {
+  if (name === 'Marketplace') {
+    run('node', [
+      './node_modules/@vscode/vsce/vsce',
+      'publish',
+      '--no-dependencies',
+      '--skip-duplicate',
+      '--packagePath',
+      vsixPath,
+    ]);
+    return;
+  }
+  if (name === 'Open VSX') {
+    run('npx', ['ovsx', 'publish', vsixPath], {
+      shell: true,
+      env: { ...process.env, OVSX_PAT: process.env.OVSX_PAT },
+    });
+    return;
+  }
+  if (name === 'GitHub') {
+    const repoArg = repoSlug();
+    const repoFlag = repoArg ? ['--repo', repoArg] : [];
+    const exists = tryRun('gh', ['release', 'view', tag, ...repoFlag]);
+    if (exists) {
+      // release 已存在（补发 / 重跑）：只更新 vsix 附件
+      run('gh', ['release', 'upload', tag, vsixPath, '--clobber', ...repoFlag]);
+    } else {
+      const args = ['release', 'create', tag, vsixPath, '--title', `${pkg.displayName || pkg.name} ${tag}`];
+      if (changelogNote) args.push('--notes', changelogNote);
+      else args.push('--generate-notes');
+      run('gh', [...args, ...repoFlag]);
+    }
+  }
+}
 
 // ── 工具函数 ───────────────────────────────────────────────
 function step(msg) {
@@ -240,6 +294,12 @@ function step(msg) {
 function fail(msg) {
   console.error(`\n✗ ${msg}\n`);
   process.exit(1);
+}
+async function ask(question) {
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  const a = (await rl.question(question)).trim().toLowerCase();
+  rl.close();
+  return a;
 }
 function run(cmd, args, opts = {}) {
   // 默认不经过 shell：Windows 下 shell:true 会把 args 拼成字符串且不转义，
@@ -255,7 +315,6 @@ function run(cmd, args, opts = {}) {
     }) ?? ''
   );
 }
-
 // 用 node 直接跑 node_modules 里的 CLI，绕开 Windows 上的 npx.cmd（.cmd 需要 shell）。
 function runNodeBin(relBinPath, args) {
   run('node', [join(root, relBinPath), ...args]);
@@ -274,6 +333,9 @@ function repoSlug() {
   const m = /github\.com[/:]([^/]+\/[^/.]+)/.exec(pkg.repository?.url ?? '');
   return m ? m[1] : '';
 }
+function ghReady() {
+  return tryRun('gh', ['auth', 'status']);
+}
 function cmpVersion(a, b) {
   const pa = a.split('.').map(Number);
   const pb = b.split('.').map(Number);
@@ -281,17 +343,6 @@ function cmpVersion(a, b) {
     if (pa[i] !== pb[i]) return pa[i] - pb[i];
   }
   return 0;
-}
-function envMark(name) {
-  return process.env[name] ? '✔' : '—';
-}
-function ghState() {
-  try {
-    execFileSync('gh', ['auth', 'status'], { stdio: 'ignore' });
-    return 'ok';
-  } catch {
-    return '—';
-  }
 }
 function firstLine(err) {
   return String(err?.message ?? err).split('\n')[0];

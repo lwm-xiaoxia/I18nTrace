@@ -126,17 +126,20 @@ pnpm run typecheck
 ## 发布
 
 ```bash
-# 一条命令：升版本号 → 打包 → 发布到 VS Code Marketplace + GitHub Releases
-node scripts/release.mjs               # 补丁号 +1（1.0.2 → 1.0.3）
+node scripts/release.mjs               # 补丁号 +1（1.0.3 → 1.0.4）
 node scripts/release.mjs minor         # 或 major / 1.4.0（指定版本号）
 node scripts/release.mjs --dry-run     # 只演练
 node scripts/release.mjs --ovsx        # 顺带发 Open VSX
-node scripts/release.mjs --no-github   # 只发 Marketplace（各平台可单独关）
+node scripts/release.mjs --no-github   # 各平台可单独关
 node scripts/release.mjs --publish-only # 补发当前版本到之前跳过/失败的平台（不升版本、不动 git）
 ```
 
-凭据：Marketplace 读环境变量 `VSCE_PAT`，Open VSX 读 `OVSX_PAT`，GitHub 用已登录的 `gh`。缺哪个就跳过哪个平台并提示。
-发布说明取 `CHANGELOG.md` 里对应 `## <版本>` 小节；没有则由 git 提交自动生成。
+执行顺序：**写版本 → 打包 → 本地 `commit` + `tag` → 发布所有平台 → 全部成功才 `git push`**。
+任一平台失败就不 push，并打印回退（全失败）或「用 `--publish-only` 补发 + 手动 push」（部分成功）的指引。
+
+凭据：Marketplace 读 `VSCE_PAT`，Open VSX 读 `OVSX_PAT`，GitHub 用已登录的 `gh`。
+想发的平台缺凭据时：交互模式会让你确认，`--yes` 模式直接中止（加 `--allow-skip` 才跳过）。
+被跳过或失败时退出码为 `1`。发布说明取 `CHANGELOG.md` 对应 `## <版本>` 小节。
 
 ## 已知限制
 
