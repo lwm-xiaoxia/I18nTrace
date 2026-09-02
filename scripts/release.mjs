@@ -16,8 +16,11 @@
 //   --skip-checks      跳过 typecheck + lint + build 预检
 //   --yes              不再交互确认
 //
-// 顺序（关键）：写版本 → 打包 → 本地 commit + tag → 发布所有平台 →
-//               全部成功才 git push；任一失败则不 push，并给出回退 / 补发指引。
+// 顺序（关键）：写版本 → 打包 → 本地 commit + tag → 发 Marketplace/Open VSX →
+//               这些都成功才 git push commit + tag → 最后发 GitHub Release。
+//   —— GitHub 放最后：gh release create 会自己在远端建 tag，必须等本地 tag 先推上去，
+//      否则本地 / 远端 tag 指向不一致，后续 push tag 被拒。
+//   —— Marketplace/Open VSX 失败时 git 还没推，可干净回退（脚本会打印命令）。
 //
 // 凭据：
 //   Marketplace : 环境变量 VSCE_PAT
@@ -191,9 +194,15 @@ if (willGit) {
   committed = true;
 }
 
-// ── 逐平台发布 ─────────────────────────────────────────────
+// GitHub Release 要在 tag 已推到远端之后再发（否则 gh 会自己在远端旧 HEAD 上建 tag，
+// 造成本地 tag 与远端 tag 指向不一致、后续 git push tag 被拒）。
+// 因此顺序：先发 Marketplace/Open VSX → 都成功才 git push commit+tag → 最后发 GitHub。
+const preGitTargets = targets.filter((p) => p.name !== 'GitHub');
+const githubTarget = targets.find((p) => p.name === 'GitHub');
+
+// ── 阶段 1：发 Marketplace / Open VSX（不碰 git）────────────
 const results = [];
-for (const p of targets) {
+for (const p of preGitTargets) {
   step(`发布到 ${p.name}`);
   if (dryRun) {
     results.push([p.name, 'dry-run', vsixName]);
@@ -206,21 +215,41 @@ for (const p of targets) {
     results.push([p.name, 'fail', firstLine(e)]);
   }
 }
+const preGitFailed = results.some((r) => r[1] === 'fail');
+
+// ── 阶段 2：前序平台都成功 → 推 commit + tag ──────────────
+let pushed = false;
+if (committed && !preGitFailed && !dryRun) {
+  step(`git push commit + ${tag}`);
+  run('git', ['push']);
+  run('git', ['push', 'origin', tag]);
+  pushed = true;
+}
+
+// ── 阶段 3：发 GitHub Release（tag 此时已在远端）──────────
+if (githubTarget) {
+  step('发布到 GitHub');
+  if (dryRun) {
+    results.push(['GitHub', 'dry-run', vsixName]);
+  } else if (willGit && !pushed) {
+    // 前序平台失败、没 push，不建 Release，免得又产生游离 tag
+    results.push(['GitHub', 'skip', '前序平台失败、未 push，跳过']);
+  } else {
+    try {
+      publishTo('GitHub');
+      results.push(['GitHub', 'ok', githubTarget.url]);
+    } catch (e) {
+      results.push(['GitHub', 'fail', firstLine(e)]);
+    }
+  }
+}
+
 for (const p of skipped) {
   results.push([p.name, 'skip', `缺 ${p.missing}`]);
 }
 
 const anyOk = results.some((r) => r[1] === 'ok');
 const anyFail = results.some((r) => r[1] === 'fail');
-
-// ── 全部成功才 push ───────────────────────────────────────
-let pushed = false;
-if (committed && !anyFail && targets.length > 0) {
-  step('全部发布成功 → git push');
-  run('git', ['push']);
-  run('git', ['push', 'origin', tag]);
-  pushed = true;
-}
 
 // ── 汇总 ───────────────────────────────────────────────────
 console.log('\n──────────────── 结果 ────────────────');
@@ -233,16 +262,23 @@ if (committed) {
 }
 console.log(`\n本地产物：${vsixName}`);
 
-// ── 失败 / 部分成功的收尾指引 ────────────────────────────
-if (anyFail && committed && !pushed) {
+// ── 失败时的收尾指引 ─────────────────────────────────────
+if (anyFail) {
   console.log('\n──────────────── 收尾 ────────────────');
-  if (!anyOk) {
-    console.log('  所有平台都没发出去。回退本地这次发布提交：');
-    console.log(`    git reset --hard HEAD~1 && git tag -d ${tag}`);
+  if (committed && !pushed) {
+    // 前序平台失败，没 push —— git 历史还没动，可以干净回退 / 或补发
+    if (!anyOk) {
+      console.log('  所有平台都没发出去，git 未推送。回退本地这次发布提交：');
+      console.log(`    git reset --hard HEAD~1 && git tag -d ${tag}`);
+    } else {
+      console.log('  部分平台已发布、git 未推送。修好失败平台后：');
+      console.log(`    $env:VSCE_PAT="..."; node scripts/release.mjs --publish-only --yes`);
+      console.log(`    git push; git push origin ${tag}          # 再手动把本次提交推上去`);
+    }
   } else {
-    console.log('  部分平台已发布，不要回退。修好失败的平台后：');
-    console.log(`    node scripts/release.mjs --publish-only   # 补发失败/跳过的平台`);
-    console.log(`    git push && git push origin ${tag}        # 手动把本次提交推上去`);
+    // commit+tag 已推送（或 --no-git），只是某平台没发成
+    console.log('  commit + tag 已就绪，只是有平台没发成。配好凭据后补发即可：');
+    console.log(`    node scripts/release.mjs --publish-only --yes`);
   }
 }
 
