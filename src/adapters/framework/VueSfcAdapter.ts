@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { ExtractContext, FrameworkAdapter, I18nCall } from '../../core/types';
-import { GenericAdapter } from './GenericAdapter';
-import { extractVueDirectiveKeys, maskComments } from './patterns';
+import { GenericAdapter, prepareScan, toI18nCalls } from './GenericAdapter';
+import { extractVueDirectiveKeys } from './patterns';
 
 /**
  * Vue SFC 适配器。
@@ -23,23 +23,9 @@ export class VueSfcAdapter implements FrameworkAdapter {
     ctx: ExtractContext,
   ): I18nCall[] {
     const calls = this.generic.extractCalls(document, range, ctx);
-
-    const startLine = Math.max(0, Math.min(range.start.line, document.lineCount - 1));
-    const endLine = Math.max(startLine, Math.min(range.end.line, document.lineCount - 1));
-    const scanRange = new vscode.Range(startLine, 0, endLine, document.lineAt(endLine).text.length);
-    const baseOffset = document.offsetAt(scanRange.start);
-    const text = maskComments(document.getText(scanRange));
-
-    for (const raw of extractVueDirectiveKeys(text)) {
-      calls.push({
-        key: raw.key,
-        keyRange: new vscode.Range(
-          document.positionAt(baseOffset + raw.keyStart),
-          document.positionAt(baseOffset + raw.keyEnd),
-        ),
-        hintPosition: document.positionAt(baseOffset + raw.hintOffset),
-      });
-    }
+    const scan = prepareScan(document, range);
+    // 指令 / 组件属性写法与函数调用互不重叠，直接追加；toI18nCalls 内部按位置去重
+    calls.push(...toI18nCalls(document, scan, extractVueDirectiveKeys(scan.text)));
     return calls;
   }
 }

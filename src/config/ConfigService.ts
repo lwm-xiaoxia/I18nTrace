@@ -101,10 +101,15 @@ function read(): I18nTraceConfig {
     translationFunctions: c.get('translationFunctions', [
       't',
       '$t',
+      '$tc',
       'i18n.t',
       'i18n.global.t',
       'translate',
       '$translate',
+      'translate.instant',
+      'translate.get',
+      'translate.stream',
+      'transloco.translate'
     ]),
     inlayHints: {
       enabled: c.get('inlayHints.enabled', true),
@@ -120,6 +125,7 @@ function read(): I18nTraceConfig {
       'vue',
       'html',
       'svelte',
+      'astro'
     ]),
     search: {
       enhanceCtrlF: c.get('search.enhanceCtrlF', true),

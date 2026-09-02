@@ -2,11 +2,24 @@ import * as assert from 'assert';
 import * as vscode from 'vscode';
 import * as path from 'path';
 
-const EXT_ID = 'i18n-trace.i18n-trace';
+/** 按 package.json 的 name 查找，避免 publisher 变更后测试失效。 */
+const EXT_NAME = 'i18n-trace';
 
 function fixture(rel: string): vscode.Uri {
   const folder = vscode.workspace.workspaceFolders![0];
   return vscode.Uri.file(path.join(folder.uri.fsPath, rel));
+}
+
+/** 取整篇文档的 Inlay Hint 文本，便于断言。 */
+async function inlayLabels(doc: vscode.TextDocument): Promise<string[]> {
+  const hints = (await vscode.commands.executeCommand(
+    'vscode.executeInlayHintProvider',
+    doc.uri,
+    new vscode.Range(0, 0, Math.max(0, doc.lineCount - 1), 0),
+  )) as vscode.InlayHint[];
+  return hints.map((hint) =>
+    typeof hint.label === 'string' ? hint.label : hint.label.map((part) => part.value).join(''),
+  );
 }
 
 async function delay(ms: number): Promise<void> {
@@ -17,8 +30,8 @@ describe('集成：激活 + Inlay Hint + 增强查找', function () {
   this.timeout(30000);
 
   before(async () => {
-    const ext = vscode.extensions.getExtension(EXT_ID);
-    assert.ok(ext, `未找到扩展 ${EXT_ID}`);
+    const ext = vscode.extensions.all.find((e) => e.packageJSON?.name === EXT_NAME);
+    assert.ok(ext, `未找到扩展 ${EXT_NAME}`);
     await ext!.activate();
     await vscode.commands.executeCommand('i18nTrace.reindex');
     await delay(500);
@@ -55,18 +68,31 @@ describe('集成：激活 + Inlay Hint + 增强查找', function () {
     assert.ok(labels.some((l) => l.includes('确认删除')), 'keypath=user.deleteConfirm');
   });
 
-  it('i18next 的 locale/语言/namespace.json 布局可通过默认或显式 namespace 命中', async () => {
-    const doc = await vscode.workspace.openTextDocument(fixture('src/I18nextDemo.ts'));
-    const hints = (await vscode.commands.executeCommand(
-      'vscode.executeInlayHintProvider',
-      doc.uri,
-      new vscode.Range(0, 0, Math.max(0, doc.lineCount - 1), 0),
-    )) as vscode.InlayHint[];
-    const labels = hints.map((hint) =>
-      typeof hint.label === 'string' ? hint.label : hint.label.map((part) => part.value).join(''),
-    );
-    assert.ok(labels.some((label) => label.includes('Save')), `默认 namespace 未命中：${labels.join(' | ')}`);
-    assert.ok(labels.some((label) => label.includes('Cancel')), `显式 namespace 未命中：${labels.join(' | ')}`);
+  it('i18next 多文件 namespace 布局：默认 ns / 显式 ns / options.ns 均命中', async () => {
+    const doc = await vscode.workspace.openTextDocument(fixture('src/Namespaced.tsx'));
+    const labels = await inlayLabels(doc);
+    const joined = labels.join(' | ');
+    // useTranslation('common') 后写裸 key
+    assert.ok(labels.some((l) => l.includes('保存')), `默认 namespace 未命中：${joined}`);
+    // 嵌套 key 也走同一个 namespace
+    assert.ok(labels.some((l) => l.includes('深层文案')), `namespace 内嵌套 key 未命中：${joined}`);
+    // 显式 ns 前缀 home:title
+    assert.ok(labels.some((l) => l.includes('首页标题')), `显式 namespace 未命中：${joined}`);
+    // ns 目录在前的布局 i18n/checkout/zh-CN.json，且通过 options.ns 指定
+    assert.ok(labels.some((l) => l.includes('去支付')), `options.ns 未命中：${joined}`);
+    // 自然语句 key 不被空格拆开
+    assert.ok(labels.some((l) => l.includes('保存更改')), `自然语句 key 未命中：${joined}`);
+    // 注释里的调用不产生气泡
+    assert.ok(!labels.some((l) => l.includes('取消')), `注释里的调用不应出气泡：${joined}`);
+  });
+
+  it('Angular / ngx-translate 模板写法命中', async () => {
+    const doc = await vscode.workspace.openTextDocument(fixture('src/Angular.html'));
+    const labels = await inlayLabels(doc);
+    const joined = labels.join(' | ');
+    assert.ok(labels.some((l) => l.includes('去支付')), `translate 管道未命中：${joined}`);
+    assert.ok(labels.some((l) => l.includes('保存')), `[translate] 绑定未命中：${joined}`);
+    assert.ok(labels.some((l) => l.includes('取消')), `i18n=@@id 未命中：${joined}`);
   });
 
   it('i18nTrace.find 命令已注册', async () => {

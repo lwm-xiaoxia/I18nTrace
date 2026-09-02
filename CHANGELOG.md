@@ -5,10 +5,13 @@
 - 重构核心模块：提取 `patterns.ts` 与 `localePath.ts` 独立模块，提升代码可维护性
 - 关键词解析增强：I18nIndex 关键词解析逻辑重写，支持配置前缀剥离、命名空间变体、扁平 key 兜底
 - 配置结构分离：ConfigService 新增「结构型 vs 显示型」变更检测，仅结构变更时触发索引重建
-- 项目扫描改进：ProjectScanner locale/namesapce 推断更精准，支持 i18next 多文件命名空间布局
+- 项目扫描改进：ProjectScanner locale/namespace 推断更精准，支持 i18next 多文件命名空间布局
 - 搜索命中缓存：FindEnhancer 新增 hitCache，Ctrl+F 增强查找性能更佳
 - 适配器全面更新：GenericAdapter 改用新 patterns 模块，VueSfcAdapter 与之配合
-- 测试覆盖率提升：34/35 单元测试通过，新增/更新 patterns 与核心模块测试
+- 注释屏蔽：注释掉的 `t(...)` 不再产生气泡（带状态扫描，正确跳过字符串、保留模板串 `${}` 内的调用）
+- 调用形式扩充：ngx-translate / Transloco 管道与 `[translate]` 绑定、Angular `$localize`:@@id:` 与 `i18n="@@id"`、React Intl `formatMessage({ id })`、`t(key, { ns })`、`useTranslation(ns)` 文件级默认命名空间
+- 默认识别函数补充 `$tc` / `translate.instant` / `translate.get` / `translate.stream` / `transloco.translate`
+- 测试：39 项全部通过，新增命名空间布局、注释屏蔽、Angular 模板等用例
 
 ## 1.0.1
 

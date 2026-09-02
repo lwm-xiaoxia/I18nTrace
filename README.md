@@ -80,7 +80,7 @@ Ctrl+F 输入「删除成功」 → 跳到 t('user.deleteSuccess')
 | `i18nTrace.sourceLocale` | `""` | 按译文反查时使用的语种；留空跟随显示语种 |
 | `i18nTrace.keySeparator` | `"."` | 嵌套语言对象拍平时的 key 分隔符 |
 | `i18nTrace.keyPrefixes` | `["++","+","@","#"]` | 原 key 不命中时尝试剥离的自定义前缀；清空可关闭 |
-| `i18nTrace.translationFunctions` | `["t","$t","i18n.t","i18n.global.t","translate","$translate"]` | 识别为翻译函数的名称 |
+| `i18nTrace.translationFunctions` | `["t","$t","$tc","i18n.t","i18n.global.t","translate","$translate","translate.instant","translate.get","translate.stream","transloco.translate"]` | 识别为翻译函数的名称（支持点号形式） |
 | `i18nTrace.inlayHints.enabled` | `true` | 显示译文气泡 |
 | `i18nTrace.inlayHints.maxLength` | `40` | 气泡译文截断长度 |
 | `i18nTrace.inlayHints.showWhenMissing` | `true` | 缺失 key 显示 ⚠️ |
@@ -107,7 +107,7 @@ Locale Parser ─────┼─→  统一 I18nIndex  ─→  InlayHints / F
                             LocaleWatcher（FileSystemWatcher → 增量更新）
 ```
 
-- `I18nIndex` 只维护 `key → translations` 与 `归一化译文 → keys`（倒排）两张表，均由语言文件构建
+- `I18nIndex` 维护「规范 key（含命名空间）→ 各语种译文」「别名 → 规范 key」「key 末段 → 规范 key」「归一化译文 → key」几张表，均由语言文件构建
 - `key → 代码引用` 按需在当前活动文档即时扫描，不建全局索引
 - 新增框架 / i18n 库 / 语言文件格式 = 新增一个 `FrameworkAdapter` / `LocaleParser` 实现并在 registry 注册一次，
   核心索引、气泡、搜索逻辑不动

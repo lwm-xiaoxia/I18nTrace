@@ -117,12 +117,17 @@
           "default": [
             "t",
             "$t",
+            "$tc",
             "i18n.t",
             "i18n.global.t",
             "translate",
-            "$translate"
+            "$translate",
+            "translate.instant",
+            "translate.get",
+            "translate.stream",
+            "transloco.translate"
           ],
-          "description": "识别为翻译函数的名称（支持点号形式，如 i18n.t）。"
+          "description": "识别为翻译函数的名称（支持点号形式，如 i18n.t、translate.instant）。"
         },
         "i18nTrace.inlayHints.enabled": {
           "type": "boolean",
@@ -166,7 +171,8 @@
             "typescriptreact",
             "vue",
             "html",
-            "svelte"
+            "svelte",
+            "astro"
           ],
           "description": "启用译文气泡与增强查找的语言（languageId）。"
         },
