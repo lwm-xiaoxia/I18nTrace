@@ -99,8 +99,8 @@ if (!assumeYes && !dryRun) {
 // ── 预检：类型 / lint / 构建 ───────────────────────────────
 if (!skipChecks) {
   step('类型检查 + lint + 构建');
-  run('npx', ['tsc', '--noEmit', '-p', 'tsconfig.json']);
-  run('npx', ['eslint', 'src', '--ext', 'ts']);
+  runNodeBin('node_modules/typescript/bin/tsc', ['--noEmit', '-p', 'tsconfig.json']);
+  runNodeBin('node_modules/eslint/bin/eslint.js', ['src', '--ext', 'ts']);
   run('node', ['esbuild.js', '--production']);
 }
 
@@ -172,7 +172,7 @@ if (doOvsx) {
     results.push(['Open VSX', 'dry-run', vsixName]);
   } else {
     try {
-      run('npx', ['ovsx', 'publish', vsixPath, '-p', process.env.OVSX_PAT]);
+      run('npx', ['ovsx', 'publish', vsixPath], { shell: true, env: { ...process.env, OVSX_PAT: process.env.OVSX_PAT } });
       results.push(['Open VSX', 'ok', `https://open-vsx.org/extension/${pkg.publisher}/${pkg.name}`]);
     } catch (e) {
       results.push(['Open VSX', 'fail', firstLine(e)]);
@@ -219,14 +219,23 @@ function fail(msg) {
   process.exit(1);
 }
 function run(cmd, args, opts = {}) {
+  // 默认不经过 shell：Windows 下 shell:true 会把 args 拼成字符串且不转义，
+  // 导致带空格 / 特殊字符的参数（提交信息、--notes 正文）被拆散。
+  // git / gh / node 都是真实可执行文件，直接 spawn 即可。
   return (
     execFileSync(cmd, args, {
       cwd: root,
       stdio: opts.capture ? ['ignore', 'pipe', 'inherit'] : 'inherit',
       encoding: 'utf8',
-      shell: process.platform === 'win32',
+      shell: opts.shell === true,
+      env: opts.env ?? process.env,
     }) ?? ''
   );
+}
+
+// 用 node 直接跑 node_modules 里的 CLI，绕开 Windows 上的 npx.cmd（.cmd 需要 shell）。
+function runNodeBin(relBinPath, args) {
+  run('node', [join(root, relBinPath), ...args]);
 }
 function cmpVersion(a, b) {
   const pa = a.split('.').map(Number);
@@ -241,10 +250,7 @@ function envMark(name) {
 }
 function ghState() {
   try {
-    execFileSync('gh', ['auth', 'status'], {
-      stdio: 'ignore',
-      shell: process.platform === 'win32',
-    });
+    execFileSync('gh', ['auth', 'status'], { stdio: 'ignore' });
     return 'ok';
   } catch {
     return '—';
