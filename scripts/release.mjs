@@ -12,7 +12,7 @@
 //   --ovsx             额外发布到 Open VSX（默认不发）
 //   --no-git           不 commit / tag / push（版本号仍会写进 package.json）
 //   --publish-only     不升版本 / 不动 git，把当前版本补发到之前跳过或失败的平台
-//   --allow-skip       想发的平台缺凭据时，跳过它继续（默认：交互确认 / --yes 下直接中止）
+//   --strict          有想发的平台因缺凭据被跳过时，退出码 1（默认只警告、退出 0）
 //   --skip-checks      跳过 typecheck + lint + build 预检
 //   --yes              不再交互确认
 //
@@ -47,7 +47,7 @@ const doOvsx = flags.has('--ovsx');
 const doGit = !flags.has('--no-git');
 const skipChecks = flags.has('--skip-checks');
 const assumeYes = flags.has('--yes');
-const allowSkip = flags.has('--allow-skip');
+const strict = flags.has('--strict'); // 有想发的平台被跳过时，非 0 退出（CI 用）
 const publishOnly = flags.has('--publish-only');
 
 // ── 计算版本号 ─────────────────────────────────────────────
@@ -111,15 +111,6 @@ const platforms = [
 ];
 
 const wanted = platforms.filter((p) => p.enabled);
-const missingCred = wanted.filter((p) => !p.ready());
-// --yes 且没 --allow-skip：缺凭据直接中止，避免脚本化运行时半发布
-if (missingCred.length > 0 && assumeYes && !allowSkip && !dryRun) {
-  fail(
-    '以下平台缺凭据，无法发布：\n' +
-      missingCred.map((p) => `  - ${p.name}：${p.missing}`).join('\n') +
-      '\n配好凭据后重试，或加 --allow-skip 跳过它们，或用 --no-xxx 明确关闭。',
-  );
-}
 const targets = wanted.filter((p) => p.ready());
 const skipped = wanted.filter((p) => !p.ready());
 
@@ -282,8 +273,22 @@ if (anyFail) {
   }
 }
 
-if (anyFail || (skipped.length > 0 && !allowSkip)) {
-  console.log('\n部分平台未发布（见上），退出码 1。');
+// 被跳过（缺凭据）不算失败——概览里已列出、交互也确认过了，只留一句提醒。
+if (skipped.length > 0 && !anyFail) {
+  console.log(
+    `\n提醒：${skipped
+      .map((p) => p.name)
+      .join(' / ')} 未发布（缺凭据）。配好后补发：node scripts/release.mjs --publish-only --yes`,
+  );
+}
+
+// 退出码：发布出错 → 1；只是缺凭据被跳过 → 默认 0，加 --strict 才 1
+if (anyFail) {
+  console.log('\n有平台发布失败（见上），退出码 1。');
+  process.exit(1);
+}
+if (strict && skipped.length > 0) {
+  console.log('\n--strict：有平台被跳过，退出码 1。');
   process.exit(1);
 }
 
