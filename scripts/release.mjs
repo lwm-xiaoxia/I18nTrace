@@ -11,6 +11,7 @@
 //   --no-github        跳过 GitHub Release
 //   --ovsx             额外发布到 Open VSX（默认不发）
 //   --no-git           不 commit / tag / push（只打包发布）
+//   --publish-only    不升版本 / 不动 git，只把当前版本补发到之前跳过或失败的平台
 //   --skip-checks      跳过 typecheck + lint + build 预检
 //   --yes              不再交互确认
 //
@@ -41,6 +42,8 @@ const doOvsx = flags.has('--ovsx');
 const doGit = !flags.has('--no-git');
 const skipChecks = flags.has('--skip-checks');
 const assumeYes = flags.has('--yes');
+// 只补发：跳过版本号计算与 git 操作，把 package.json 当前版本发到还没发的平台
+const publishOnly = flags.has('--publish-only');
 
 // ── 计算新版本号 ───────────────────────────────────────────
 const current = pkg.version;
@@ -51,20 +54,24 @@ if (parts.length !== 3 || parts.some((n) => !Number.isInteger(n))) {
 const [maj, min, pat] = parts;
 
 let next;
-const bumpArg = positional[0] ?? 'patch';
-if (bumpArg === 'patch') next = `${maj}.${min}.${pat + 1}`;
-else if (bumpArg === 'minor') next = `${maj}.${min + 1}.0`;
-else if (bumpArg === 'major') next = `${maj + 1}.0.0`;
-else if (/^\d+\.\d+\.\d+$/.test(bumpArg)) next = bumpArg;
-else fail(`版本参数只接受 patch / minor / major / x.y.z，收到：${bumpArg}`);
+if (publishOnly) {
+  next = current; // 只补发，不动版本号
+} else {
+  const bumpArg = positional[0] ?? 'patch';
+  if (bumpArg === 'patch') next = `${maj}.${min}.${pat + 1}`;
+  else if (bumpArg === 'minor') next = `${maj}.${min + 1}.0`;
+  else if (bumpArg === 'major') next = `${maj + 1}.0.0`;
+  else if (/^\d+\.\d+\.\d+$/.test(bumpArg)) next = bumpArg;
+  else fail(`版本参数只接受 patch / minor / major / x.y.z，收到：${bumpArg}`);
 
-if (cmpVersion(next, current) <= 0) {
-  fail(`新版本号 ${next} 必须大于当前 ${current}`);
+  if (cmpVersion(next, current) <= 0) {
+    fail(`新版本号 ${next} 必须大于当前 ${current}`);
+  }
 }
 const tag = `v${next}`;
 
-// ── 前置检查：工作区干净 ──────────────────────────────────
-if (existsSync(join(root, '.git')) && !dryRun) {
+// ── 前置检查：工作区干净（补发模式允许带未提交改动）──────
+if (existsSync(join(root, '.git')) && !dryRun && !publishOnly) {
   const dirty = run('git', ['status', '--porcelain'], { capture: true }).trim();
   if (dirty) {
     fail('工作区有未提交改动，请先提交或 stash：\n' + dirty);
@@ -74,7 +81,9 @@ if (existsSync(join(root, '.git')) && !dryRun) {
 const changelogNote = extractChangelogSection(next);
 
 console.log('──────────────────────────────────────────');
-console.log(`  发布 ${pkg.name}   ${current} → ${next}`);
+console.log(
+  publishOnly ? `  补发 ${pkg.name}   ${current}（不升版本、不动 git）` : `  发布 ${pkg.name}   ${current} → ${next}`,
+);
 console.log(
   `  目标：${[doMarketplace && 'Marketplace', doGithub && 'GitHub', doOvsx && 'Open VSX']
     .filter(Boolean)
@@ -104,28 +113,34 @@ if (!skipChecks) {
   run('node', ['esbuild.js', '--production']);
 }
 
-// ── 写版本号 ───────────────────────────────────────────────
-step(`写入 version = ${next}`);
-if (!dryRun) {
-  pkg.version = next;
-  writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n');
+// ── 写版本号（补发模式不改）───────────────────────────────
+if (!publishOnly) {
+  step(`写入 version = ${next}`);
+  if (!dryRun) {
+    pkg.version = next;
+    writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n');
+  }
 }
 
-// ── 打包 ───────────────────────────────────────────────────
-step('vsce package');
+// ── 打包（补发模式：已有同版本 vsix 就直接复用）────────────
 const vsixName = `${pkg.name}-${next}.vsix`;
 const vsixPath = join(root, vsixName);
-for (const f of readdirSync(root).filter((f) => f.endsWith('.vsix'))) {
-  if (!dryRun) unlinkSync(join(root, f));
-}
-if (!dryRun) {
-  run('node', ['./node_modules/@vscode/vsce/vsce', 'package', '--no-dependencies', '-o', vsixPath]);
+if (publishOnly && existsSync(vsixPath)) {
+  step(`复用已有产物 ${vsixName}`);
 } else {
-  console.log(`  [dry-run] 会生成 ${vsixName}`);
+  step('vsce package');
+  for (const f of readdirSync(root).filter((f) => f.endsWith('.vsix'))) {
+    if (!dryRun) unlinkSync(join(root, f));
+  }
+  if (!dryRun) {
+    run('node', ['./node_modules/@vscode/vsce/vsce', 'package', '--no-dependencies', '-o', vsixPath]);
+  } else {
+    console.log(`  [dry-run] 会生成 ${vsixName}`);
+  }
 }
 
-// ── git 提交 + tag + push ─────────────────────────────────
-if (doGit && !dryRun) {
+// ── git 提交 + tag + push（补发模式跳过）──────────────────
+if (doGit && !dryRun && !publishOnly) {
   step(`git commit + tag ${tag} + push`);
   run('git', ['add', 'package.json', 'CHANGELOG.md']);
   run('git', ['commit', '-m', `chore: release ${tag}`]);
@@ -188,11 +203,19 @@ if (doGithub) {
     results.push(['GitHub', 'dry-run', vsixName]);
   } else {
     try {
-      const title = `${pkg.displayName || pkg.name} ${tag}`;
-      const args = ['release', 'create', tag, vsixPath, '--title', title];
-      if (changelogNote) args.push('--notes', changelogNote);
-      else args.push('--generate-notes');
-      run('gh', args);
+      const repoArg = repoSlug();
+      const releaseExists = tryRun('gh', ['release', 'view', tag, ...(repoArg ? ['--repo', repoArg] : [])]);
+      if (releaseExists) {
+        // 补发场景：release 已存在，只更新 vsix 附件
+        run('gh', ['release', 'upload', tag, vsixPath, '--clobber', ...(repoArg ? ['--repo', repoArg] : [])]);
+      } else {
+        const title = `${pkg.displayName || pkg.name} ${tag}`;
+        const args = ['release', 'create', tag, vsixPath, '--title', title];
+        if (changelogNote) args.push('--notes', changelogNote);
+        else args.push('--generate-notes');
+        if (repoArg) args.push('--repo', repoArg);
+        run('gh', args);
+      }
       const repoUrl = (pkg.repository?.url || '').replace(/\.git$/, '');
       results.push(['GitHub', 'ok', `${repoUrl}/releases/tag/${tag}`]);
     } catch (e) {
@@ -236,6 +259,20 @@ function run(cmd, args, opts = {}) {
 // 用 node 直接跑 node_modules 里的 CLI，绕开 Windows 上的 npx.cmd（.cmd 需要 shell）。
 function runNodeBin(relBinPath, args) {
   run('node', [join(root, relBinPath), ...args]);
+}
+/** 静默执行，成功返回 true，失败返回 false（用于探测型命令）。 */
+function tryRun(cmd, args) {
+  try {
+    execFileSync(cmd, args, { cwd: root, stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+/** owner/repo，取自 package.json 的 repository.url。 */
+function repoSlug() {
+  const m = /github\.com[/:]([^/]+\/[^/.]+)/.exec(pkg.repository?.url ?? '');
+  return m ? m[1] : '';
 }
 function cmpVersion(a, b) {
   const pa = a.split('.').map(Number);
