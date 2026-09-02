@@ -2,7 +2,7 @@
   "name": "i18n-trace",
   "displayName": "I18nTrace",
   "description": "在代码中常驻显示 i18n 译文，并支持按译文反查 key（增强 Ctrl+F）",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "publisher": "linwm",
   "license": "MIT",
   "repository": {
