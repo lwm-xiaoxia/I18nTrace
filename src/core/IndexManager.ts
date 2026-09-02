@@ -9,6 +9,9 @@ import { DisposableStore } from '../util/disposable';
 import { logger } from '../util/logger';
 
 /** 单个语言文件的解析结果，供诊断报告使用。 */
+/** 精确排除列表的长度上限，超过则退化为目录 glob。 */
+const MAX_EXCLUDE_GLOB_LENGTH = 4000;
+
 export interface FileDiag {
   path: string;
   locale: string;
@@ -125,6 +128,41 @@ export class IndexManager {
         logger.warn(`${d.path} 解析出 0 条 key（格式可能不受支持，如通过 import 组合的模块）`);
       }
     }
+  }
+
+  /**
+   * 生成「在文件中查找」用的排除 glob（逗号分隔），把语言文件本身挡在结果之外。
+   * 否则全局按译文查找时，语言包里的 key 定义行会占掉一大半结果。
+   *
+   * 默认逐个文件精确排除；文件很多（如 i18next 按命名空间拆成上百个 JSON）时
+   * 精确列表会过长，退化为这些文件所在目录的 dir/** —— 目录内本就只放语言文件，
+   * 误伤概率低，且比截断列表更符合预期。
+   */
+  buildLocaleExcludeGlob(): string {
+    const files: string[] = [];
+    for (const file of this.fileInfo.values()) {
+      files.push(toGlobPath(this.relPath(file.uri)));
+    }
+    if (files.length === 0) {
+      return '';
+    }
+
+    const exact = [...new Set(files)].sort();
+    const joined = exact.join(',');
+    if (joined.length <= MAX_EXCLUDE_GLOB_LENGTH) {
+      return joined;
+    }
+
+    const dirs = new Set<string>();
+    for (const p of exact) {
+      const idx = p.lastIndexOf('/');
+      dirs.add(idx === -1 ? '*' : p.slice(0, idx) + '/**');
+    }
+    const fallback = [...dirs].sort().join(',');
+    logger.info(
+      `语言文件较多（${exact.length} 个），全局查找的排除范围按目录聚合：${fallback}`,
+    );
+    return fallback;
   }
 
   /** 生成一份可读的诊断报告（供命令写入输出频道）。 */
@@ -272,4 +310,9 @@ export class IndexManager {
   private syncIndexOptions(): void {
     this.index.setOptions({ keyPrefixes: this.config.value.keyPrefixes });
   }
+}
+
+/** Windows 下 relPath 返回反斜杠，glob 统一用正斜杠。 */
+export function toGlobPath(rel: string): string {
+  return rel.split(path.sep).join('/');
 }

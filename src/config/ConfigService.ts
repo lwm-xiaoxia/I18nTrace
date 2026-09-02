@@ -22,7 +22,9 @@ export interface I18nTraceConfig {
   languageSelector: string[];
   search: {
     enhanceCtrlF: boolean;
+    enhanceCtrlShiftF: boolean;
     maxKeysPerSearch: number;
+    excludeLocaleFiles: boolean;
   };
 }
 
@@ -72,6 +74,13 @@ export class ConfigService {
     await vscode.workspace
       .getConfiguration(SECTION)
       .update('displayLocale', locale, vscode.ConfigurationTarget.Workspace);
+  }
+
+  /** 持久化 sourceLocale（查找框内切换反查语种用）。 */
+  async setSourceLocale(locale: string): Promise<void> {
+    await vscode.workspace
+      .getConfiguration(SECTION)
+      .update('sourceLocale', locale, vscode.ConfigurationTarget.Workspace);
   }
 
   async setInlayHintsEnabled(enabled: boolean): Promise<void> {
@@ -129,7 +138,9 @@ function read(): I18nTraceConfig {
     ]),
     search: {
       enhanceCtrlF: c.get('search.enhanceCtrlF', true),
+      enhanceCtrlShiftF: c.get('search.enhanceCtrlShiftF', true),
       maxKeysPerSearch: c.get('search.maxKeysPerSearch', 50),
+      excludeLocaleFiles: c.get('search.excludeLocaleFiles', true),
     },
   };
 }

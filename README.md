@@ -1,6 +1,6 @@
 # I18nTrace
 
-在 VS Code 里**不修改源码**地常驻显示 i18n 译文，并把 `Ctrl+F` 增强为「按译文反查 key」。
+在 VS Code 里**不修改源码**地常驻显示 i18n 译文，并把 `Ctrl+F` / `Ctrl+Shift+F` 增强为「按译文反查 key」。
 
 ## 功能
 
@@ -41,6 +41,34 @@ Ctrl+F 输入「删除成功」 → 跳到 t('user.deleteSuccess')
 > 通过索引把「译文」解析成一组 key → 生成匹配这些 key 字面量的正则 →
 > 调用官方命令 `editor.actions.findWithArgs` 交回原生查找框。因此增强与原生搜索能力共存，
 > 代价只是多一次「打开输入框 + 回车」。
+
+### 3. `Ctrl + Shift + F` 按译文全局查找
+
+同样的输入框，范围换成整个工作区，结果交给 VS Code 原生的「在文件中查找」面板。
+
+```
+Ctrl+Shift+F 输入「删除成功」
+  → 搜索框填入 ['"`](?:user\.deleteSuccess|common\.delOk)['"`]（正则已开）
+  → 结果树列出所有调用这些 key 的源码位置
+```
+
+- 命中后完全由原生搜索面板接管：结果树、`F4` 逐个跳、改包含/排除范围重搜等全部原生行为
+- 默认**排除语言文件本身**，否则结果里一大半是语言包中的 key 定义行（`i18nTrace.search.excludeLocaleFiles` 可关）
+- 同样**完整保留普通搜索**：没有译文命中时等价于普通 `Ctrl+Shift+F`
+- 把 `i18nTrace.search.enhanceCtrlShiftF` 设为 `false` 即可恢复原生
+
+> **与当前文件版的差别**：`Ctrl+F` 会把候选 key 与当前文件里真实出现的调用取交集，
+> 全局版不做这一步（那需要自建全局代码引用索引），直接把候选 key 全部交给 VS Code
+> 搜索引擎去筛。代价是极少数情况下会多出误报，比如 key 名恰好出现在注释或文档里。
+>
+> **一处体验落差**：搜索结果树不渲染 Inlay Hint，列表里看到的是 `t('user.deleteSuccess')`
+> 而不是「删除成功」。这是 VS Code 的限制，无扩展点。作为补偿，查找后会弹一条提示
+> 说明「短语 → 命中了哪些 key」；点进结果跳到源码后，气泡照常显示译文。
+
+### 反查使用哪个语种
+
+按译文反查默认使用**显示语种**（留空时自动优先中文），也可以用 `i18nTrace.sourceLocale`
+单独指定。两个查找框都会在提示行里写明当前生效的语种，右上角的 🌐 图标可直接切换。
 
 ## 兼容性
 
@@ -86,12 +114,15 @@ Ctrl+F 输入「删除成功」 → 跳到 t('user.deleteSuccess')
 | `i18nTrace.inlayHints.showWhenMissing` | `true` | 缺失 key 显示 ⚠️ |
 | `i18nTrace.inlayHints.wrap` | `"none"` | 给行内译文加包裹符（`「」` / `『』` / `【】` / `‹›` / `()` / `[]`），便于和代码里的字符串区分 |
 | `i18nTrace.languageSelector` | 见设置 | 生效的语言（languageId） |
-| `i18nTrace.search.enhanceCtrlF` | `true` | Ctrl+F 增强开关 |
+| `i18nTrace.search.enhanceCtrlF` | `true` | Ctrl+F 增强开关（当前文件） |
+| `i18nTrace.search.enhanceCtrlShiftF` | `true` | Ctrl+Shift+F 增强开关（全局） |
 | `i18nTrace.search.maxKeysPerSearch` | `50` | 单次增强查找最多纳入的 key 数 |
+| `i18nTrace.search.excludeLocaleFiles` | `true` | 全局按译文查找时排除语言文件本身 |
 
 ## 命令
 
 - `I18nTrace: 按译文查找（增强 Ctrl+F）` — `i18nTrace.find`
+- `I18nTrace: 按译文全局查找（增强 Ctrl+Shift+F）` — `i18nTrace.findInFiles`
 - `I18nTrace: 切换显示语种` — `i18nTrace.switchDisplayLocale`
 - `I18nTrace: 重建索引` — `i18nTrace.reindex`
 - `I18nTrace: 开关译文气泡` — `i18nTrace.toggleInlayHints`
@@ -108,7 +139,7 @@ Locale Parser ─────┼─→  统一 I18nIndex  ─→  InlayHints / F
 ```
 
 - `I18nIndex` 维护「规范 key（含命名空间）→ 各语种译文」「别名 → 规范 key」「key 末段 → 规范 key」「归一化译文 → key」几张表，均由语言文件构建
-- `key → 代码引用` 按需在当前活动文档即时扫描，不建全局索引
+- `key → 代码引用` 按需在当前活动文档即时扫描，不建全局索引；全局查找则把候选 key 交给 VS Code 自己的搜索引擎去筛
 - 新增框架 / i18n 库 / 语言文件格式 = 新增一个 `FrameworkAdapter` / `LocaleParser` 实现并在 registry 注册一次，
   核心索引、气泡、搜索逻辑不动
 
@@ -143,7 +174,8 @@ node scripts/release.mjs --publish-only # 补发当前版本到之前跳过/失�
 
 ## 已知限制
 
-- 增强查找范围为**当前文件**；跨文件「按译文搜索」计划后续版本提供
+- 全局按译文查找不与实际调用取交集（那需要自建全局代码引用索引），少数情况下会有误报，例如 key 名恰好出现在注释、文档或字符串常量里
+- 全局查找的结果树不显示译文，只显示源码里的 key —— VS Code 的搜索结果树不渲染 Inlay Hint，无扩展点
 - JS/TS 语言文件仅静态解析 `export default { … }` / `module.exports = { … }` 里的对象字面量；通过 `import` 组合子模块、`import.meta.glob` 动态聚合、运行时计算的翻译取不到（碰到时用 `I18nTrace: 显示诊断信息` 排查，或用 `i18nTrace.localeDirs` 直接指向叶子语言文件目录）
 - Angular 无显式 `@@id` 的 `$localize`、Svelte 专用写法需后续 Adapter
 - `.vue` / `.svelte` 的 languageId 依赖对应语言扩展；未安装时按文件扩展名兜底识别

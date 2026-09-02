@@ -1,6 +1,11 @@
 import * as assert from 'assert';
 import * as vscode from 'vscode';
 import * as path from 'path';
+import { ConfigService } from '../config/ConfigService';
+import { ProjectScanner } from '../config/ProjectScanner';
+import { LocaleParserRegistry } from '../adapters/locale/registry';
+import { IndexManager } from '../core/IndexManager';
+import { buildKeyLiteralRegex, toSearchableKey } from '../features/FindEnhancer';
 
 /** 按 package.json 的 name 查找，避免 publisher 变更后测试失效。 */
 const EXT_NAME = 'i18n-trace';
@@ -98,6 +103,80 @@ describe('集成：激活 + Inlay Hint + 增强查找', function () {
   it('i18nTrace.find 命令已注册', async () => {
     const all = await vscode.commands.getCommands(true);
     assert.ok(all.includes('i18nTrace.find'));
+    assert.ok(all.includes('i18nTrace.findInFiles'));
     assert.ok(all.includes('i18nTrace.switchDisplayLocale'));
+  });
+
+  it('全局查找依赖的原生命令存在', async () => {
+    // workbench.action.findInFiles 不在 vscode.d.ts 里，属于内置命令；
+    // 断言它存在，宿主版本若移除该命令能立刻在测试里暴露出来。
+    const all = await vscode.commands.getCommands(true);
+    assert.ok(all.includes('workbench.action.findInFiles'));
+  });
+
+  it('全局查找的参数能被原生搜索面板接受', async () => {
+    // 参数名写错时 VS Code 不会报错、只是静默忽略，所以这里只能验证调用链不抛异常；
+    // 真正的「搜索框被填对」需要人工在扩展开发宿主里确认。
+    await vscode.commands.executeCommand('workbench.action.findInFiles', {
+      query: `['"\`](?:user\\.name)['"\`]`,
+      isRegex: true,
+      triggerSearch: true,
+      filesToExclude: 'locales/**',
+    });
+    await delay(300);
+    await vscode.commands.executeCommand('workbench.action.closeSidebar');
+  });
+
+  it('全局查找链路：译文 → key → 正则能命中真实源码', async () => {
+    const config = new ConfigService();
+    const parsers = new LocaleParserRegistry();
+    const manager = new IndexManager(config, parsers, new ProjectScanner(parsers));
+    try {
+      await manager.rebuild();
+
+      // 走的是 FindEnhancer 在 workspace 范围下的同一条链路：反查 → 剥命名空间 → 建正则
+      const keys = manager.index
+        .findKeysByTranslation('删除成功', 'zh-CN')
+        .map(toSearchableKey);
+      assert.ok(keys.includes('user.deleteSuccess'), `未反查到 key：${keys.join(',')}`);
+
+      const re = new RegExp(buildKeyLiteralRegex(keys));
+      const source = (
+        await vscode.workspace.fs.readFile(fixture('src/demo.ts'))
+      ).toString();
+      assert.ok(re.test(source), `正则未命中 demo.ts：${re.source}`);
+      // 只该命中目标调用，不该把同前缀的其它 key 也带上
+      assert.ok(!re.test(`t('user.deleteConfirm')`), '不应命中未反查到的 key');
+    } finally {
+      manager.dispose();
+      config.dispose();
+    }
+  });
+
+  it('排除 glob 覆盖全部语言文件且不含源码', async () => {
+    const config = new ConfigService();
+    const parsers = new LocaleParserRegistry();
+    const manager = new IndexManager(config, parsers, new ProjectScanner(parsers));
+    try {
+      await manager.rebuild();
+      const glob = manager.buildLocaleExcludeGlob();
+      const parts = glob.split(',');
+
+      assert.ok(parts.length > 0, '应至少排除一个语言文件');
+      assert.ok(!glob.includes('\\'), `glob 必须用正斜杠：${glob}`);
+      // 语言文件在列
+      assert.ok(
+        parts.some((p) => p.endsWith('locales/zh-CN.json')),
+        `缺少 locales/zh-CN.json：${glob}`,
+      );
+      // 源码不该被排除，否则结果会被清空
+      assert.ok(
+        !parts.some((p) => p.endsWith('.ts') && p.includes('src/')),
+        `源码被误排除：${glob}`,
+      );
+    } finally {
+      manager.dispose();
+      config.dispose();
+    }
   });
 });

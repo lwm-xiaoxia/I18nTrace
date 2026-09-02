@@ -1,4 +1,5 @@
 import * as assert from 'assert';
+import * as path from 'path';
 import { extractI18nCallsFromText } from '../adapters/framework/GenericAdapter';
 import {
   extractDefaultNamespace,
@@ -8,7 +9,8 @@ import {
   extractVueDirectiveKeys,
   maskComments,
 } from '../adapters/framework/patterns';
-import { buildKeyLiteralRegex } from '../features/FindEnhancer';
+import { buildKeyLiteralRegex, toSearchableKey } from '../features/FindEnhancer';
+import { toGlobPath } from '../core/IndexManager';
 
 const FUNCS = ['t', '$t', 'i18n.t', 'i18n.global.t', 'translate'];
 
@@ -99,5 +101,30 @@ describe('FindEnhancer / buildKeyLiteralRegex', () => {
     assert.ok(re.test(`$t("user.name", {})`));
     assert.ok(!re.test(`t('userXname')`), 'user.name 的点号必须按字面量匹配');
     assert.ok(!re.test(`t('user.names')`), '引号锚定，user.names 不应命中');
+  });
+
+  it('重复 key 只出现一次', () => {
+    // 全局查找时不同命名空间可能收敛成同一个字面量，正则里不该重复
+    const re = buildKeyLiteralRegex(['common.save', 'common.save', 'common.ok']);
+    assert.strictEqual(re, `['"\`](?:common\\.save|common\\.ok)['"\`]`);
+  });
+});
+
+describe('FindEnhancer / toSearchableKey', () => {
+  it('剥掉索引内部的命名空间前缀', () => {
+    // 索引里是 common:save，源码里通常写 t('save')，搜的必须是冒号右边那段
+    assert.strictEqual(toSearchableKey('common:save'), 'save');
+    assert.strictEqual(toSearchableKey('pages/home:title'), 'title');
+  });
+
+  it('无命名空间的 key 原样返回', () => {
+    assert.strictEqual(toSearchableKey('user.deleteSuccess'), 'user.deleteSuccess');
+  });
+});
+
+describe('IndexManager / toGlobPath', () => {
+  it('把平台分隔符统一成正斜杠', () => {
+    const rel = ['src', 'languages', 'modules', 'zh-CN.ts'].join(path.sep);
+    assert.strictEqual(toGlobPath(rel), 'src/languages/modules/zh-CN.ts');
   });
 });

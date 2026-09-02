@@ -1,5 +1,17 @@
 # 更新日志
 
+## 2.0.0
+
+- 新增「按译文全局查找」：`Ctrl+Shift+F` 收词后把译文解析成一组 key，生成正则交给原生「在文件中查找」面板
+  - 默认排除语言文件本身，避免结果里全是 key 定义行（`i18nTrace.search.excludeLocaleFiles`）
+  - 语言文件很多时排除列表按目录聚合，不再无限拉长
+  - 无译文命中时等价普通全局查找；`i18nTrace.search.enhanceCtrlShiftF` 可关闭增强
+- 查找框显示当前反查语种，并新增 🌐 按钮直接切换（`sourceLocale` 此前可配但不可见）
+- `Ctrl+F` 在当前文件没命中、但工作区里存在该译文时，提示改用 `Ctrl+Shift+F`
+- FindEnhancer 重构为按 scope 分叉的单一流程，当前文件与全局两个入口共用输入框与反查逻辑
+- 修正 `Ctrl+Shift+F` 的 when 条件：原先带 `!searchViewletVisible`，侧边栏停在搜索视图时快捷键会静默失效，改为只受 `enhanceCtrlShiftF` 开关控制
+- 测试：47 项全部通过，新增全局查找相关用例
+
 ## 1.0.3
 
 - 重构核心模块：提取 `patterns.ts` 与 `localePath.ts` 独立模块，提升代码可维护性

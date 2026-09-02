@@ -35,6 +35,10 @@
         "title": "I18nTrace: 按译文查找（增强 Ctrl+F）"
       },
       {
+        "command": "i18nTrace.findInFiles",
+        "title": "I18nTrace: 按译文全局查找（增强 Ctrl+Shift+F）"
+      },
+      {
         "command": "i18nTrace.switchDisplayLocale",
         "title": "I18nTrace: 切换显示语种"
       },
@@ -57,6 +61,12 @@
         "key": "ctrl+f",
         "mac": "cmd+f",
         "when": "editorTextFocus && !findWidgetVisible && !isInEmbeddedEditor && config.i18nTrace.search.enhanceCtrlF"
+      },
+      {
+        "command": "i18nTrace.findInFiles",
+        "key": "ctrl+shift+f",
+        "mac": "cmd+shift+f",
+        "when": "config.i18nTrace.search.enhanceCtrlShiftF"
       }
     ],
     "configuration": {
@@ -181,10 +191,20 @@
           "default": true,
           "description": "把编辑器内 Ctrl+F 增强为「按译文查找」（无译文命中时等价普通查找）。关闭后 Ctrl+F 完全恢复原生。"
         },
+        "i18nTrace.search.enhanceCtrlShiftF": {
+          "type": "boolean",
+          "default": true,
+          "description": "把 Ctrl+Shift+F 增强为「按译文全局查找」（无译文命中时等价普通全局查找）。关闭后完全恢复原生。"
+        },
         "i18nTrace.search.maxKeysPerSearch": {
           "type": "number",
           "default": 50,
           "description": "单次增强查找最多纳入的 key 数量，超出则截断并提示。"
+        },
+        "i18nTrace.search.excludeLocaleFiles": {
+          "type": "boolean",
+          "default": true,
+          "description": "全局按译文查找时，把语言文件本身排除在搜索结果之外，避免结果里全是 key 定义行。"
         }
       }
     }

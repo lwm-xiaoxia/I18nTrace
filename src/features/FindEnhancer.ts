@@ -6,16 +6,22 @@ import { escapeRegExp } from '../util/text';
 import { DisposableStore } from '../util/disposable';
 import { debounce } from '../util/debounce';
 
+/** 查找范围：当前文件（Ctrl+F）或整个工作区（Ctrl+Shift+F）。 */
+type FindScope = 'document' | 'workspace';
+
 /**
- * 增强 Ctrl+F：把「译文」翻译成一组 key，再交回 VS Code 原生查找框。
+ * 增强查找：把「译文」翻译成一组 key，再交回 VS Code 原生查找 UI。
  *
- * 设计要点（见方案）：VS Code 稳定 API 无法拦截/扩展原生查找框，因此：
- *  1. 用轻量 InputBox 收集短语；
- *  2. 用索引把短语部分匹配成一组 key，并与「当前文件实际出现的 key」取交集；
- *  3. 交集非空 → 构造匹配这些 key 字面量的正则，调 editor.actions.findWithArgs（isRegex）；
- *  4. 交集为空 / 无译文命中 / 非代码文件 → 原样把短语交给原生查找（等价普通 Ctrl+F）。
+ * 两个入口共用同一套「输入框 → 译文反查 key → 构造 key 字面量正则」的流程，
+ * 只在「候选 key 如何收敛」和「交给哪个原生 UI」上分叉：
  *
- * 之后的 Enter / Shift+Enter / 高亮全部 / 关闭，全部是原生查找框行为。
+ * - document（Ctrl+F）：与当前文件实际出现的 key 取交集 → editor.actions.findWithArgs。
+ *   取交集是因为编辑器查找只在本文件内高亮，塞入本文件不存在的 key 只会让正则变长。
+ * - workspace（Ctrl+Shift+F）：不取交集，直接把全部候选 key 交给
+ *   workbench.action.findInFiles，由 VS Code 搜索引擎筛掉工作区里不存在的 key。
+ *   （全局取交集意味着要自建代码引用索引，成本远高于收益。）
+ *
+ * 两种范围下，未命中任何译文时都退回原样短语的普通查找，等价于原生行为。
  */
 export class FindEnhancer {
   private readonly store = new DisposableStore();
@@ -28,7 +34,10 @@ export class FindEnhancer {
     private readonly adapters: FrameworkAdapterRegistry,
   ) {
     this.store.add(
-      vscode.commands.registerCommand('i18nTrace.find', () => this.run()),
+      vscode.commands.registerCommand('i18nTrace.find', () => this.run('document')),
+    );
+    this.store.add(
+      vscode.commands.registerCommand('i18nTrace.findInFiles', () => this.run('workspace')),
     );
     this.store.add(this.indexManager.index.onDidChange(() => this.hitCache.clear()));
     this.store.add(this.config.onDidChangeDisplay(() => this.hitCache.clear()));
@@ -38,31 +47,40 @@ export class FindEnhancer {
     this.store.dispose();
   }
 
-  private async run(): Promise<void> {
-    const editor = vscode.window.activeTextEditor;
-    if (!editor) {
-      await vscode.commands.executeCommand('actions.find');
-      return;
-    }
-
+  private async run(scope: FindScope): Promise<void> {
+    const enhanced =
+      scope === 'document'
+        ? this.config.value.search.enhanceCtrlF
+        : this.config.value.search.enhanceCtrlShiftF;
     // 增强关闭时（一般 when 子句已拦截，这里兜底）直接走原生
-    if (!this.config.value.search.enhanceCtrlF) {
-      await vscode.commands.executeCommand('actions.find');
+    if (!enhanced) {
+      await this.nativeFallback(scope);
       return;
     }
 
-    const seed = editor.document.getText(editor.selection).split('\n')[0] ?? '';
+    const editor = vscode.window.activeTextEditor;
+    // 当前文件查找必须有活动编辑器；全局查找没有编辑器也能用
+    if (scope === 'document' && !editor) {
+      await this.nativeFallback(scope);
+      return;
+    }
+
+    const seed = editor ? (editor.document.getText(editor.selection).split('\n')[0] ?? '') : '';
 
     const input = vscode.window.createInputBox();
-    input.title = 'I18nTrace 查找';
+    input.title = scope === 'document' ? 'I18nTrace 查找' : 'I18nTrace 全局查找';
     input.placeholder = '输入译文或普通关键字，Enter 查找';
-    input.prompt = '命中译文 → 跳到对应 key 调用；未命中 → 普通查找';
     input.value = seed;
+
     const plainButton: vscode.QuickInputButton = {
       iconPath: new vscode.ThemeIcon('search'),
       tooltip: '按普通文本查找（跳过译文解析）',
     };
-    input.buttons = [plainButton];
+    const localeButton: vscode.QuickInputButton = {
+      iconPath: new vscode.ThemeIcon('globe'),
+      tooltip: '切换反查语种',
+    };
+    input.buttons = [localeButton, plainButton];
 
     let done = false;
     const finish = async (mode: 'auto' | 'plain'): Promise<void> => {
@@ -73,31 +91,60 @@ export class FindEnhancer {
       const phrase = input.value.trim();
       input.hide();
       if (!phrase) {
-        await vscode.commands.executeCommand('actions.find');
+        await this.nativeFallback(scope);
         return;
       }
-      await this.dispatch(editor, phrase, mode);
+      await this.dispatch(scope, editor, phrase, mode);
     };
 
     // 本次调用的临时订阅，随输入框关闭一起释放
     const local: vscode.Disposable[] = [];
+
+    // 把「按哪个语种反查」明确写出来：sourceLocale 配置早就存在，但此前不可见，
+    // 用户无从确认当前生效的是哪个语种。
+    const idlePrompt = (): string => {
+      const locale = this.indexManager.resolveSourceLocale();
+      const where = scope === 'document' ? '当前文件' : '整个工作区';
+      return locale
+        ? `按 ${locale} 译文在${where}查找（右上角图标可切换语种）`
+        : `尚无可用语种，将按普通文本在${where}查找`;
+    };
+    input.prompt = idlePrompt();
+
     const updatePrompt = debounce((value: string) => {
       const q = value.trim();
       if (done || input.value !== value) {
         return;
       }
       if (!q) {
-        input.prompt = '命中译文 → 跳到对应 key 调用；未命中 → 普通查找';
+        input.prompt = idlePrompt();
         return;
       }
-      const n = this.resolveHitKeys(editor.document, q).length;
-      input.prompt = n > 0 ? `匹配到 ${n} 个 key（Enter 用正则定位）` : '无译文命中，Enter 走普通查找';
+      const n = this.resolveHitKeys(scope, editor?.document, q).length;
+      const action = scope === 'document' ? 'Enter 用正则定位' : 'Enter 在文件中查找';
+      input.prompt = n > 0 ? `匹配到 ${n} 个 key（${action}）` : '无译文命中，Enter 走普通查找';
     }, 150);
     local.push({ dispose: () => updatePrompt.cancel() });
     local.push(
       input.onDidTriggerButton((btn) => {
         if (btn === plainButton) {
           void finish('plain');
+          return;
+        }
+        if (btn === localeButton) {
+          void this.pickSourceLocale().then((changed) => {
+            if (done) {
+              return;
+            }
+            if (changed) {
+              // 语种变了，命中数与提示都要重算
+              this.hitCache.clear();
+            }
+            input.prompt = idlePrompt();
+            updatePrompt(input.value);
+            // QuickPick 会顶掉输入框，选完要重新显示
+            input.show();
+          });
         }
       }),
       input.onDidAccept(() => void finish('auto')),
@@ -117,30 +164,52 @@ export class FindEnhancer {
     input.show();
   }
 
+  /** 查找框里的「切换反查语种」，返回是否真的改了。 */
+  private async pickSourceLocale(): Promise<boolean> {
+    const locales = this.indexManager.index.getLocales();
+    if (locales.length === 0) {
+      void vscode.window.showInformationMessage('I18nTrace：尚未发现任何语言文件。');
+      return false;
+    }
+    const current = this.indexManager.resolveSourceLocale();
+    const picked = await vscode.window.showQuickPick(
+      locales.map((l) => ({ label: l, description: l === current ? '当前' : undefined })),
+      { title: 'I18nTrace：选择按译文反查使用的语种' },
+    );
+    if (!picked || picked.label === current) {
+      return false;
+    }
+    await this.config.setSourceLocale(picked.label);
+    return true;
+  }
+
   private async dispatch(
-    editor: vscode.TextEditor,
+    scope: FindScope,
+    editor: vscode.TextEditor | undefined,
     phrase: string,
     mode: 'auto' | 'plain',
   ): Promise<void> {
     if (mode === 'plain') {
-      await this.nativeFind(phrase, false);
+      await this.nativeFind(scope, phrase, false);
       return;
     }
 
-    const hitKeys = this.resolveHitKeys(editor.document, phrase);
+    const hitKeys = this.resolveHitKeys(scope, editor?.document, phrase);
     if (hitKeys.length === 0) {
-      // 译文可能在别的文件里命中，提示一下（当前版本搜索范围仅当前文件）
-      const globalHits = this.indexManager.index.findKeysByTranslation(
-        phrase,
-        this.indexManager.resolveSourceLocale(),
-        1,
-      );
-      if (globalHits.length > 0) {
-        void vscode.window.showInformationMessage(
-          `I18nTrace：「${phrase}」对应的 key 不在当前文件，已按普通文本查找。`,
+      if (scope === 'document') {
+        // 译文可能在别的文件里命中，提示可以改用全局查找
+        const globalHits = this.indexManager.index.findKeysByTranslation(
+          phrase,
+          this.indexManager.resolveSourceLocale(),
+          1,
         );
+        if (globalHits.length > 0) {
+          void vscode.window.showInformationMessage(
+            `I18nTrace：「${phrase}」对应的 key 不在当前文件，已按普通文本查找。可用 Ctrl+Shift+F 全局查找。`,
+          );
+        }
       }
-      await this.nativeFind(phrase, false);
+      await this.nativeFind(scope, phrase, false);
       return;
     }
 
@@ -151,35 +220,54 @@ export class FindEnhancer {
       void vscode.window.showInformationMessage(
         `I18nTrace：命中 ${hitKeys.length} 个 key，仅纳入前 ${max} 个。可缩小搜索词。`,
       );
+    } else if (scope === 'workspace') {
+      // 搜索结果树不渲染 Inlay Hint，用户只看得到 key；
+      // 用一条提示补上「短语 → key」的对应关系，否则无从判断结果属于哪条译文。
+      void vscode.window.showInformationMessage(
+        `I18nTrace：「${phrase}」→ ${keys.length} 个 key：${keys.join(' / ')}`,
+      );
     }
 
-    await this.nativeFind(buildKeyLiteralRegex(keys), true);
+    await this.nativeFind(scope, buildKeyLiteralRegex(keys), true);
   }
 
-  /** 短语 → 当前文件里真实出现、且译文匹配的 key 列表。 */
-  private resolveHitKeys(document: vscode.TextDocument, phrase: string): string[] {
+  /**
+   * 短语 → 用于构造正则的 key 列表。
+   *
+   * - workspace：索引里译文匹配的全部规范 key，原样返回（不与任何文档取交集）。
+   * - document：再与当前文件里真实出现的调用取交集，返回代码里的字面量写法。
+   */
+  private resolveHitKeys(
+    scope: FindScope,
+    document: vscode.TextDocument | undefined,
+    phrase: string,
+  ): string[] {
     const cacheKey = [
-      document.uri.toString(),
-      document.version,
+      scope,
+      document ? document.uri.toString() : '',
+      document ? String(document.version) : '',
       this.indexManager.resolveSourceLocale() ?? '',
       phrase,
-    ].join('\u0000');
+    ].join(' ');
     const cached = this.hitCache.get(cacheKey);
     if (cached) {
       return cached;
     }
-    const matchedKeys = new Set(
-      this.indexManager.index.findKeysByTranslation(
-        phrase,
-        this.indexManager.resolveSourceLocale(),
-      ),
+
+    const matched = this.indexManager.index.findKeysByTranslation(
+      phrase,
+      this.indexManager.resolveSourceLocale(),
     );
-    if (matchedKeys.size === 0) {
+    if (matched.length === 0) {
       return this.cache(cacheKey, []);
     }
+    if (scope === 'workspace') {
+      return this.cache(cacheKey, matched.map(toSearchableKey));
+    }
 
-    const adapter = this.adapters.forDocument(document);
-    if (!adapter) {
+    const matchedKeys = new Set(matched);
+    const adapter = document ? this.adapters.forDocument(document) : undefined;
+    if (!document || !adapter) {
       // 非代码文件：无法定位调用，交给普通查找
       return this.cache(cacheKey, []);
     }
@@ -220,12 +308,45 @@ export class FindEnhancer {
     return value;
   }
 
-  private async nativeFind(searchString: string, isRegex: boolean): Promise<void> {
-    await vscode.commands.executeCommand('editor.actions.findWithArgs', {
-      searchString,
+  /** 不带查询词地打开对应的原生查找 UI。 */
+  private async nativeFallback(scope: FindScope): Promise<void> {
+    await vscode.commands.executeCommand(
+      scope === 'document' ? 'actions.find' : 'workbench.action.findInFiles',
+    );
+  }
+
+  private async nativeFind(scope: FindScope, searchString: string, isRegex: boolean): Promise<void> {
+    if (scope === 'document') {
+      await vscode.commands.executeCommand('editor.actions.findWithArgs', {
+        searchString,
+        isRegex,
+      });
+      return;
+    }
+    await vscode.commands.executeCommand('workbench.action.findInFiles', {
+      query: searchString,
       isRegex,
+      triggerSearch: true,
+      // 只在按译文反查（isRegex）时排除语言文件；普通文本查找时用户可能就是想搜语言包
+      filesToExclude:
+        isRegex && this.config.value.search.excludeLocaleFiles
+          ? this.indexManager.buildLocaleExcludeGlob()
+          : '',
     });
   }
+}
+
+/**
+ * 规范 key → 源码里可能出现的字面量。
+ *
+ * 索引里带命名空间的 key 形如 `common:save`，但源码中通常写作 `t('save')`
+ * 或 `t('common:save')`；冒号左边那段是索引内部加的。全局查找无法像当前文件版
+ * 那样反查实际调用写法，这里取冒号右侧作为搜索用字面量 —— 宁可多匹配到同名 key，
+ * 也不要因为命名空间前缀而一条都搜不到。
+ */
+export function toSearchableKey(key: string): string {
+  const idx = key.indexOf(':');
+  return idx === -1 ? key : key.slice(idx + 1);
 }
 
 /**
@@ -233,6 +354,6 @@ export class FindEnhancer {
  *   ['"`](?:user\.name|user\.deleteSuccess)['"`]
  */
 export function buildKeyLiteralRegex(keys: string[]): string {
-  const alt = keys.map((k) => escapeRegExp(k)).join('|');
+  const alt = [...new Set(keys)].map((k) => escapeRegExp(k)).join('|');
   return `['"\`](?:${alt})['"\`]`;
 }
