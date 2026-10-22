@@ -1,0 +1,5 @@
+{
+  "app": { "mainDevice": "区域项目主设备" },
+  "common": { "save": "保存区域配置" },
+  "other": { "only": "仅区域项目存在" }
+}

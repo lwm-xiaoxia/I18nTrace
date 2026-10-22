@@ -1,0 +1,5 @@
+{
+  "app": { "mainDevice": "Regional Main Device" },
+  "common": { "save": "Save region" },
+  "other": { "only": "Regional project only" }
+}

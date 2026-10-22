@@ -1,0 +1,11 @@
+{
+  "folders": [
+    { "path": "project-zh" },
+    { "path": "project-region" },
+    { "path": "project-empty" },
+    { "path": ".", "name": "project-parent" }
+  ],
+  "settings": {
+    "i18nTrace.sourceLocale": "en"
+  }
+}

@@ -8,10 +8,10 @@ import { analyzeLocalePath } from '../config/localePath';
 import { DisposableStore } from '../util/disposable';
 import { logger } from '../util/logger';
 
-/** 单个语言文件的解析结果，供诊断报告使用。 */
 /** 精确排除列表的长度上限，超过则退化为目录 glob。 */
 const MAX_EXCLUDE_GLOB_LENGTH = 4000;
 
+/** 单个语言文件的解析结果，供诊断报告使用。 */
 export interface FileDiag {
   path: string;
   locale: string;
@@ -26,8 +26,32 @@ export interface FileDiag {
  * - 单个语言文件增删改：只重解析该文件
  */
 export class IndexManager {
-  readonly index = new I18nIndex();
   private readonly store = new DisposableStore();
+  /** 每个项目根目录拥有独立索引；无项目上下文时返回空索引，不能借用其它项目。 */
+  private readonly projectIndexes = new Map<string, I18nIndex>();
+  private readonly emptyIndex = new I18nIndex();
+  private readonly changeEmitter = new vscode.EventEmitter<void>();
+  readonly onDidChange = this.changeEmitter.event;
+
+  /** 命令默认使用活动文件所属项目；只有一个根目录时允许无活动文件。 */
+  get index(): I18nIndex {
+    return this.getIndex();
+  }
+
+  getProjectFolder(resource?: vscode.Uri): vscode.WorkspaceFolder | undefined {
+    const uri = resource ?? vscode.window.activeTextEditor?.document.uri;
+    if (uri) {
+      return vscode.workspace.getWorkspaceFolder(uri);
+    }
+    const folders = vscode.workspace.workspaceFolders ?? [];
+    return folders.length === 1 ? folders[0] : undefined;
+  }
+
+  /** 编辑器提供者必须显式传入正在处理的文档，不能依赖活动编辑器。 */
+  getIndex(resource?: vscode.Uri): I18nIndex {
+    const folder = this.getProjectFolder(resource);
+    return folder ? this.projectIndexes.get(folder.uri.fsPath) ?? this.emptyIndex : this.emptyIndex;
+  }
 
   /** uriString → 该文件的完整扫描信息，供单文件增量更新时复用。 */
   private fileInfo = new Map<string, LocaleFile>();
@@ -44,13 +68,18 @@ export class IndexManager {
     private readonly parsers: LocaleParserRegistry,
     private readonly scanner: ProjectScanner,
   ) {
-    this.store.add(this.index);
+    this.store.add(this.emptyIndex);
+    this.store.add(this.changeEmitter);
     this.syncIndexOptions();
     // key 前缀不改变索引内容，只影响代码调用与索引 key 的解析；配置变更后立即生效。
     this.store.add(this.config.onDidChangeDisplay(() => this.syncIndexOptions()));
   }
 
   dispose(): void {
+    for (const index of this.projectIndexes.values()) {
+      index.dispose();
+    }
+    this.projectIndexes.clear();
     this.store.dispose();
   }
 
@@ -90,11 +119,30 @@ export class IndexManager {
   private async doRebuild(): Promise<void> {
     // 整轮重建包在一个批次里：只重算一次派生结构、只广播一次刷新，
     // 且扫描期间索引仍持有上一轮数据，气泡不会先消失再出现。
-    this.index.beginBatch();
+    const folders = vscode.workspace.workspaceFolders ?? [];
+    const roots = new Set(folders.map((folder) => folder.uri.fsPath));
+    for (const [root, index] of this.projectIndexes) {
+      if (!roots.has(root)) {
+        index.dispose();
+        this.projectIndexes.delete(root);
+      }
+    }
+    for (const root of roots) {
+      if (!this.projectIndexes.has(root)) {
+        const index = new I18nIndex();
+        index.setOptions({ keyPrefixes: this.config.value.keyPrefixes });
+        this.projectIndexes.set(root, index);
+      }
+    }
+    const indexes = [...this.projectIndexes.values()];
+    for (const index of indexes) {
+      index.beginBatch();
+      index.clear();
+    }
     let files: LocaleFile[] = [];
     try {
       this.fileInfo.clear();
-      this.index.clear();
+      this.lastScan = [];
 
       if (!this.config.value.enabled) {
         return;
@@ -107,19 +155,22 @@ export class IndexManager {
           : `localeFileGlob = ${cfg.localeFileGlob}`;
 
       files = await this.scanner.scan(cfg);
-      this.lastScan = [];
       for (const file of files) {
         this.fileInfo.set(file.uri.toString(), file);
         const diag = await this.parseInto(file);
         this.lastScan.push(diag);
       }
     } finally {
-      this.index.endBatch();
+      for (const index of indexes) {
+        index.endBatch();
+      }
+      this.changeEmitter.fire();
     }
 
+    const locales = [...new Set(indexes.flatMap((index) => index.getLocales()))].sort();
     const summary = `索引完成：${files.length} 个语言文件，${
-      this.index.getLocales().length
-    } 个 locale [${this.index.getLocales().join(', ')}]，共 ${this.lastScan.reduce(
+      this.projectIndexes.size
+    } 个项目，${locales.length} 个 locale [${locales.join(', ')}]，共 ${this.lastScan.reduce(
       (n, d) => n + d.entries,
       0,
     )} 条 key`;
@@ -146,9 +197,13 @@ export class IndexManager {
    * 精确列表会过长，退化为这些文件所在目录的 dir/** —— 目录内本就只放语言文件，
    * 误伤概率低，且比截断列表更符合预期。
    */
-  buildLocaleExcludeGlob(): string {
+  buildLocaleExcludeGlob(resource?: vscode.Uri): string {
+    const folder = this.getProjectFolder(resource);
     const files: string[] = [];
     for (const file of this.fileInfo.values()) {
+      if (file.workspaceFolder !== folder?.uri.fsPath) {
+        continue;
+      }
       files.push(toGlobPath(this.relPath(file.uri)));
     }
     if (files.length === 0) {
@@ -175,17 +230,21 @@ export class IndexManager {
 
   /** 生成一份可读的诊断报告（供命令写入输出频道）。 */
   buildDiagnosticsReport(activeDoc?: vscode.TextDocument): string {
+    const resource = activeDoc?.uri;
+    const folder = this.getProjectFolder(resource);
+    const index = this.getIndex(resource);
     const lines: string[] = [];
     lines.push('════════ I18nTrace 诊断 ════════');
     lines.push(`工作区：${(vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath).join(', ') || '（无）'}`);
     lines.push(`扫描依据：${this.lastScanMeta || '（尚未扫描）'}`);
-    lines.push(`locale：[${this.index.getLocales().join(', ') || '无'}]`);
-    lines.push(`displayLocale：${this.resolveDisplayLocale() ?? '（无）'}`);
-    lines.push(`sourceLocale：${this.resolveSourceLocale() ?? '（无）'}`);
-    lines.push(`命名空间：[${this.index.getNamespaces().join(', ') || '无'}]`);
-    lines.push(`总 key 数：${this.lastScan.reduce((n, d) => n + d.entries, 0)}`);
+    lines.push(`当前项目：${folder?.uri.fsPath ?? '（无，请打开项目内的文件）'}`);
+    lines.push(`locale：[${index.getLocales().join(', ') || '无'}]`);
+    lines.push(`displayLocale：${this.resolveDisplayLocale(resource) ?? '（无）'}`);
+    lines.push(`sourceLocale：${this.resolveSourceLocale(resource) ?? '（无）'}`);
+    lines.push(`命名空间：[${index.getNamespaces().join(', ') || '无'}]`);
+    lines.push(`工作区总 key 数：${this.lastScan.reduce((n, d) => n + d.entries, 0)}`);
     lines.push('');
-    lines.push('语言文件：');
+    lines.push('工作区语言文件（按项目分别索引）：');
     if (this.lastScan.length === 0) {
       lines.push('  （未扫到任何语言文件）');
     }
@@ -204,8 +263,8 @@ export class IndexManager {
   }
 
   /** 查某个 key 当前索引里的状态（诊断命令用）。 */
-  lookupKey(key: string): { locales: string[]; sample?: string } {
-    const all = this.index.getAllForKey(key);
+  lookupKey(key: string, resource?: vscode.Uri): { locales: string[]; sample?: string } {
+    const all = this.getIndex(resource).getAllForKey(key);
     if (!all) {
       return { locales: [] };
     }
@@ -217,31 +276,37 @@ export class IndexManager {
     if (!this.config.value.enabled || !this.supportsExtension(uri)) {
       return;
     }
+    const folder = vscode.workspace.getWorkspaceFolder(uri);
+    if (!folder || !this.projectIndexes.has(folder.uri.fsPath)) {
+      return;
+    }
     let file = this.fileInfo.get(uri.toString());
     if (!file) {
       // 新建文件：重新推断并纳入
       const info = analyzeLocalePath(uri.fsPath);
-      const folder = vscode.workspace.getWorkspaceFolder(uri);
       file = {
         uri,
         locale: info.locale,
         namespace: info.namespace,
-        workspaceFolder: folder?.uri.fsPath ?? '',
+        workspaceFolder: folder.uri.fsPath,
         depth: 0,
       };
       this.fileInfo.set(uri.toString(), file);
     }
     await this.parseInto(file);
+    this.changeEmitter.fire();
   }
 
   removeFile(uri: vscode.Uri): void {
-    if (this.fileInfo.delete(uri.toString())) {
-      this.index.removeFile(uri);
+    const file = this.fileInfo.get(uri.toString());
+    if (file && this.fileInfo.delete(uri.toString())) {
+      this.projectIndexes.get(file.workspaceFolder)?.removeFile(uri);
+      this.changeEmitter.fire();
     }
   }
 
   private async parseInto(file: LocaleFile): Promise<FileDiag> {
-    const rel = this.relPath(file.uri);
+    const rel = vscode.workspace.asRelativePath(file.uri, true);
     const ext = path.extname(file.uri.fsPath).slice(1).toLowerCase();
     const parser = this.parsers.get(ext);
     if (!parser) {
@@ -260,7 +325,7 @@ export class IndexManager {
         namespace: file.namespace,
         keySeparator: this.config.value.keySeparator,
       });
-      this.index.replaceFile(file.uri, entries);
+      this.projectIndexes.get(file.workspaceFolder)?.replaceFile(file.uri, entries);
       return {
         path: rel,
         locale: file.locale,
@@ -268,7 +333,7 @@ export class IndexManager {
         entries: entries.length,
       };
     } catch (err) {
-      this.index.replaceFile(file.uri, []);
+      this.projectIndexes.get(file.workspaceFolder)?.replaceFile(file.uri, []);
       return {
         path: rel,
         locale: file.locale,
@@ -288,9 +353,9 @@ export class IndexManager {
    * 决定气泡显示用的 locale：
    *   配置 displayLocale > 含 "zh" 的 locale > 第一个 locale
    */
-  resolveDisplayLocale(): string | undefined {
+  resolveDisplayLocale(resource?: vscode.Uri): string | undefined {
     const configured = this.config.value.displayLocale.trim();
-    const locales = this.index.getLocales();
+    const locales = this.getIndex(resource).getLocales();
     if (configured && locales.includes(configured)) {
       return configured;
     }
@@ -305,17 +370,19 @@ export class IndexManager {
    * 决定 Ctrl+F 按译文反查使用的 locale。
    * 显式 sourceLocale 优先；未配置时保持原行为，跟随显示语种。
    */
-  resolveSourceLocale(): string | undefined {
+  resolveSourceLocale(resource?: vscode.Uri): string | undefined {
     const configured = this.config.value.sourceLocale.trim();
-    const locales = this.index.getLocales();
+    const locales = this.getIndex(resource).getLocales();
     if (configured && locales.includes(configured)) {
       return configured;
     }
-    return this.resolveDisplayLocale();
+    return this.resolveDisplayLocale(resource);
   }
 
   private syncIndexOptions(): void {
-    this.index.setOptions({ keyPrefixes: this.config.value.keyPrefixes });
+    for (const index of this.projectIndexes.values()) {
+      index.setOptions({ keyPrefixes: this.config.value.keyPrefixes });
+    }
   }
 }
 

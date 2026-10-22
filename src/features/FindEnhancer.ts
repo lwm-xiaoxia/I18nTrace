@@ -6,7 +6,7 @@ import { escapeRegExp } from '../util/text';
 import { DisposableStore } from '../util/disposable';
 import { debounce } from '../util/debounce';
 
-/** 查找范围：当前文件（Ctrl+F）或整个工作区（Ctrl+Shift+F）。 */
+/** 查找范围：当前文件（Ctrl+F）或当前项目的文件（Ctrl+Shift+F）。 */
 type FindScope = 'document' | 'workspace';
 
 /**
@@ -18,7 +18,7 @@ type FindScope = 'document' | 'workspace';
  * - document（Ctrl+F）：与当前文件实际出现的 key 取交集 → editor.actions.findWithArgs。
  *   取交集是因为编辑器查找只在本文件内高亮，塞入本文件不存在的 key 只会让正则变长。
  * - workspace（Ctrl+Shift+F）：不取交集，直接把全部候选 key 交给
- *   workbench.action.findInFiles，由 VS Code 搜索引擎筛掉工作区里不存在的 key。
+ *   workbench.action.findInFiles，由 VS Code 搜索引擎在当前项目中筛选 key。
  *   （全局取交集意味着要自建代码引用索引，成本远高于收益。）
  *
  * 两种范围下，未命中任何译文时都退回原样短语的普通查找，等价于原生行为。
@@ -39,7 +39,7 @@ export class FindEnhancer {
     this.store.add(
       vscode.commands.registerCommand('i18nTrace.findInFiles', () => this.run('workspace')),
     );
-    this.store.add(this.indexManager.index.onDidChange(() => this.hitCache.clear()));
+    this.store.add(this.indexManager.onDidChange(() => this.hitCache.clear()));
     this.store.add(this.config.onDidChangeDisplay(() => this.hitCache.clear()));
   }
 
@@ -64,6 +64,14 @@ export class FindEnhancer {
       await this.nativeFallback(scope);
       return;
     }
+    const project = this.indexManager.getProjectFolder(editor?.document.uri);
+    if (!project) {
+      void vscode.window.showInformationMessage('I18nTrace：请先打开项目内的文件，再按该项目的译文查找。');
+      await this.nativeFallback(scope);
+      return;
+    }
+    // 输入期间即使切换编辑器，整次查找仍使用发起时的项目。
+    const resource = editor?.document.uri ?? project.uri;
 
     const seed = editor ? (editor.document.getText(editor.selection).split('\n')[0] ?? '') : '';
 
@@ -94,7 +102,7 @@ export class FindEnhancer {
         await this.nativeFallback(scope);
         return;
       }
-      await this.dispatch(scope, editor, phrase, mode);
+      await this.dispatch(scope, editor, phrase, mode, resource);
     };
 
     // 本次调用的临时订阅，随输入框关闭一起释放
@@ -103,8 +111,8 @@ export class FindEnhancer {
     // 把「按哪个语种反查」明确写出来：sourceLocale 配置早就存在，但此前不可见，
     // 用户无从确认当前生效的是哪个语种。
     const idlePrompt = (): string => {
-      const locale = this.indexManager.resolveSourceLocale();
-      const where = scope === 'document' ? '当前文件' : '整个工作区';
+      const locale = this.indexManager.resolveSourceLocale(resource);
+      const where = scope === 'document' ? '当前文件' : `项目 ${project.name} 中`;
       return locale
         ? `按 ${locale} 译文在${where}查找（右上角图标可切换语种）`
         : `尚无可用语种，将按普通文本在${where}查找`;
@@ -120,7 +128,7 @@ export class FindEnhancer {
         input.prompt = idlePrompt();
         return;
       }
-      const n = this.resolveHitKeys(scope, editor?.document, q).length;
+      const n = this.resolveHitKeys(scope, editor?.document, q, resource).length;
       const action = scope === 'document' ? 'Enter 用正则定位' : 'Enter 在文件中查找';
       input.prompt = n > 0 ? `匹配到 ${n} 个 key（${action}）` : '无译文命中，Enter 走普通查找';
     }, 150);
@@ -132,7 +140,7 @@ export class FindEnhancer {
           return;
         }
         if (btn === localeButton) {
-          void this.pickSourceLocale().then((changed) => {
+          void this.pickSourceLocale(resource).then((changed) => {
             if (done) {
               return;
             }
@@ -165,13 +173,13 @@ export class FindEnhancer {
   }
 
   /** 查找框里的「切换反查语种」，返回是否真的改了。 */
-  private async pickSourceLocale(): Promise<boolean> {
-    const locales = this.indexManager.index.getLocales();
+  private async pickSourceLocale(resource: vscode.Uri): Promise<boolean> {
+    const locales = this.indexManager.getIndex(resource).getLocales();
     if (locales.length === 0) {
       void vscode.window.showInformationMessage('I18nTrace：尚未发现任何语言文件。');
       return false;
     }
-    const current = this.indexManager.resolveSourceLocale();
+    const current = this.indexManager.resolveSourceLocale(resource);
     const picked = await vscode.window.showQuickPick(
       locales.map((l) => ({ label: l, description: l === current ? '当前' : undefined })),
       { title: 'I18nTrace：选择按译文反查使用的语种' },
@@ -188,19 +196,20 @@ export class FindEnhancer {
     editor: vscode.TextEditor | undefined,
     phrase: string,
     mode: 'auto' | 'plain',
+    resource: vscode.Uri,
   ): Promise<void> {
     if (mode === 'plain') {
       await this.nativeFind(scope, phrase, false);
       return;
     }
 
-    const hitKeys = this.resolveHitKeys(scope, editor?.document, phrase);
+    const hitKeys = this.resolveHitKeys(scope, editor?.document, phrase, resource);
     if (hitKeys.length === 0) {
       if (scope === 'document') {
         // 译文可能在别的文件里命中，提示可以改用全局查找
-        const globalHits = this.indexManager.index.findKeysByTranslation(
+        const globalHits = this.indexManager.getIndex(resource).findKeysByTranslation(
           phrase,
-          this.indexManager.resolveSourceLocale(),
+          this.indexManager.resolveSourceLocale(resource),
           1,
         );
         if (globalHits.length > 0) {
@@ -228,7 +237,7 @@ export class FindEnhancer {
       );
     }
 
-    await this.nativeFind(scope, buildKeyLiteralRegex(keys), true);
+    await this.nativeFind(scope, buildKeyLiteralRegex(keys), true, resource);
   }
 
   /**
@@ -241,15 +250,16 @@ export class FindEnhancer {
     scope: FindScope,
     document: vscode.TextDocument | undefined,
     phrase: string,
+    resource = document?.uri,
   ): string[] {
-    // workspace 的结果只由索引和语种决定，与当前打开哪个文件无关；
-    // 键里带上文档信息会让每次切文件都白白丢掉缓存。
+    // 项目级反查缓存不依赖具体文档版本，但必须带项目身份，避免同名 key 串项目。
     const docPart = scope === 'document' && document;
     const cacheKey = [
       scope,
+      this.indexManager.getProjectFolder(resource)?.uri.toString() ?? '',
       docPart ? document.uri.toString() : '',
       docPart ? String(document.version) : '',
-      this.indexManager.resolveSourceLocale() ?? '',
+      this.indexManager.resolveSourceLocale(resource) ?? '',
       phrase,
     ].join(' ');
     const cached = this.hitCache.get(cacheKey);
@@ -257,9 +267,10 @@ export class FindEnhancer {
       return cached;
     }
 
-    const matched = this.indexManager.index.findKeysByTranslation(
+    const index = this.indexManager.getIndex(resource);
+    const matched = index.findKeysByTranslation(
       phrase,
-      this.indexManager.resolveSourceLocale(),
+      this.indexManager.resolveSourceLocale(resource),
     );
     if (matched.length === 0) {
       return this.cache(cacheKey, []);
@@ -290,7 +301,7 @@ export class FindEnhancer {
     for (const call of calls) {
       // call.key 是代码里的字面量（可能带前缀 / 是扁平 key）；解析成索引真实 key 再比对，
       // 但返回的仍是字面量本身，供 buildKeyLiteralRegex 在源码里精确定位。
-      const resolved = this.indexManager.index.resolveKey(call.key, call.namespace) ?? call.key;
+      const resolved = index.resolveKey(call.key, call.namespace) ?? call.key;
       if (matchedKeys.has(resolved) && !seen.has(call.key)) {
         seen.add(call.key);
         result.push(call.key);
@@ -318,7 +329,12 @@ export class FindEnhancer {
     );
   }
 
-  private async nativeFind(scope: FindScope, searchString: string, isRegex: boolean): Promise<void> {
+  private async nativeFind(
+    scope: FindScope,
+    searchString: string,
+    isRegex: boolean,
+    resource?: vscode.Uri,
+  ): Promise<void> {
     if (scope === 'document') {
       await vscode.commands.executeCommand('editor.actions.findWithArgs', {
         searchString,
@@ -330,10 +346,12 @@ export class FindEnhancer {
       query: searchString,
       isRegex,
       triggerSearch: true,
+      // 原生搜索接受绝对目录路径；只约束译文反查，普通文本查找保留工作区范围。
+      filesToInclude: isRegex ? this.indexManager.getProjectFolder(resource)?.uri.fsPath ?? '' : '',
       // 只在按译文反查（isRegex）时排除语言文件；普通文本查找时用户可能就是想搜语言包
       filesToExclude:
         isRegex && this.config.value.search.excludeLocaleFiles
-          ? this.indexManager.buildLocaleExcludeGlob()
+          ? this.indexManager.buildLocaleExcludeGlob(resource)
           : '',
     });
   }

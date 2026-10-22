@@ -17,6 +17,10 @@ export function registerCommands(
 
   store.add(
     vscode.commands.registerCommand('i18nTrace.switchDisplayLocale', async () => {
+      if (!indexManager.getProjectFolder()) {
+        void vscode.window.showInformationMessage('I18nTrace：请先打开要切换语种的项目文件。');
+        return;
+      }
       const locales = indexManager.index.getLocales();
       if (locales.length === 0) {
         void vscode.window.showInformationMessage('I18nTrace：尚未发现任何语言文件。');
@@ -42,8 +46,11 @@ export function registerCommands(
         { location: vscode.ProgressLocation.Window, title: 'I18nTrace：重建索引' },
         () => indexManager.rebuild(),
       );
+      const project = indexManager.getProjectFolder();
       void vscode.window.showInformationMessage(
-        `I18nTrace：索引完成，locale = [${indexManager.index.getLocales().join(', ') || '无'}]`,
+        project
+          ? `I18nTrace：${project.name} 索引完成，locale = [${indexManager.index.getLocales().join(', ') || '无'}]`
+          : 'I18nTrace：各项目索引已重建，请打开项目文件查看对应语种。',
       );
     }),
   );
@@ -83,13 +90,15 @@ export function registerCommands(
               continue;
             }
             seen.add(call.key);
-            const parts = indexManager.index.resolveKeyParts(call.key, call.namespace);
+            const parts = indexManager
+              .getIndex(editor.document.uri)
+              .resolveKeyParts(call.key, call.namespace);
             if (!parts) {
               logger.append(`  ✗ ${call.key} — 无法解析到任何 key`);
               continue;
             }
             const shown = parts.map((k) => {
-              const hit = indexManager.lookupKey(k);
+              const hit = indexManager.lookupKey(k, editor.document.uri);
               const arrow = k === call.key ? '' : ` → ${k}`;
               return hit.locales.length > 0
                 ? `${k}${arrow} [${hit.locales.join(',')}]${hit.sample ? `「${hit.sample}」` : ''}`

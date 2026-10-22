@@ -45,7 +45,7 @@ Ctrl+F 输入「删除成功」 → 跳到 t('user.deleteSuccess')
 
 ### 3. `Ctrl + Shift + F` 按译文全局查找
 
-同样的输入框，范围换成整个工作区，结果交给 VS Code 原生的「在文件中查找」面板。
+同样的输入框，译文反查范围换成当前文件所属项目，结果交给 VS Code 原生的「在文件中查找」面板；普通文本查找保留整个工作区范围。
 
 ```
 Ctrl+Shift+F 输入「删除成功」
@@ -98,6 +98,10 @@ Ctrl+Shift+F 输入「删除成功」
 
 支持：嵌套 key、扁平 key、多 locale、多个 locale 目录、monorepo、多根工作区，以及 i18next 常见的 `locales/en/common.json`、`locales/en/pages/home.json` 和 `i18n/common/en/index.json` 命名空间布局。
 
+多根工作区按各根目录隔离项目索引：气泡、悬浮译文、跳转、漏翻检查和译文反查只使用当前文件所属项目的语言资源。同名 key 不会跨项目覆盖，其他项目的 `zh-CN` 也不会让使用 `zh` 的项目误报漏翻；项目内的多个语言目录仍合并处理。按译文全局查找只搜索当前项目，普通文本查找保留 VS Code 的工作区范围。多根工作区没有活动项目文件时，需先打开目标项目的文件。
+
+项目边界目前以 VS Code 工作区根目录为准；单根目录内的 monorepo 子项目尚不自动隔离，可将需要隔离的子项目分别添加为工作区根目录。
+
 ## 配置项
 
 | 键 | 默认 | 说明 |
@@ -136,13 +140,13 @@ Ctrl+Shift+F 输入「删除成功」
 
 ```
 Framework Adapter ─┐
-Locale Parser ─────┼─→  统一 I18nIndex  ─→  InlayHints / FindEnhancer
+Locale Parser ─────┼─→  各项目 I18nIndex  ─→  InlayHints / FindEnhancer
                    │        ↑
                    └── ConfigService + ProjectScanner（自动检测 + 手动覆盖）
                             LocaleWatcher（FileSystemWatcher → 增量更新）
 ```
 
-- `I18nIndex` 维护「规范 key（含命名空间）→ 各语种译文」「别名 → 规范 key」「key 末段 → 规范 key」「归一化译文 → key」几张表，均由语言文件构建
+- 每个项目的 `I18nIndex` 维护「规范 key（含命名空间）→ 各语种译文」「别名 → 规范 key」「key 末段 → 规范 key」「归一化译文 → key」几张表，均由该项目的语言文件构建
 - `key → 代码引用` 按需在当前活动文档即时扫描，不建全局索引；全局查找则把候选 key 交给 VS Code 自己的搜索引擎去筛
 - 新增框架 / i18n 库 / 语言文件格式 = 新增一个 `FrameworkAdapter` / `LocaleParser` 实现并在 registry 注册一次，
   核心索引、气泡、搜索逻辑不动
@@ -161,20 +165,21 @@ pnpm run typecheck
 ## 发布
 
 ```bash
-node scripts/release.mjs               # 补丁号 +1（1.0.3 → 1.0.4）
+node scripts/release.mjs               # 补丁号 +1
 node scripts/release.mjs minor         # 或 major / 1.4.0（指定版本号）
 node scripts/release.mjs --dry-run     # 只演练
 node scripts/release.mjs --ovsx        # 顺带发 Open VSX
 node scripts/release.mjs --no-github   # 各平台可单独关
+node scripts/release.mjs --strict      # 目标平台缺凭据时以非零状态结束
 node scripts/release.mjs --publish-only # 补发当前版本到之前跳过/失败的平台（不升版本、不动 git）
 ```
 
-执行顺序：**写版本 → 打包 → 本地 `commit` + `tag` → 发布所有平台 → 全部成功才 `git push`**。
-任一平台失败就不 push，并打印回退（全失败）或「用 `--publish-only` 补发 + 手动 push」（部分成功）的指引。
+执行顺序：**检查 → 写版本 → 打包 → 本地 `commit` + `tag` → 发布 Marketplace / Open VSX → 前序平台成功后 `git push` → 发布 GitHub Release**。
+Marketplace / Open VSX 失败时不会推送 Git；GitHub Release 失败时，提交和标签可能已经推送，可用 `--publish-only` 补发。
 
 凭据：Marketplace 读 `VSCE_PAT`，Open VSX 读 `OVSX_PAT`，GitHub 用已登录的 `gh`。
-想发的平台缺凭据时：交互模式会让你确认，`--yes` 模式直接中止（加 `--allow-skip` 才跳过）。
-被跳过或失败时退出码为 `1`。发布说明取 `CHANGELOG.md` 对应 `## <版本>` 小节。
+想发的平台缺凭据时会被跳过，交互模式会让你确认；`--yes` 会跳过确认。至少有一个可发布平台才会继续。
+发布失败时退出码为 `1`；仅缺凭据导致跳过时默认退出码为 `0`，加 `--strict` 改为 `1`（即使其它平台已发布成功）。发布说明取 `CHANGELOG.md` 对应 `## <版本>` 小节。
 
 ## 已知限制
 

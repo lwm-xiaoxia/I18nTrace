@@ -24,7 +24,7 @@ export class I18nTraceInlayHintsProvider implements vscode.InlayHintsProvider {
   ) {
     this.store.add(this.changeEmitter);
     // 索引或显示配置变化时，请求编辑器重新拉取 hint
-    this.store.add(this.indexManager.index.onDidChange(() => this.refresh()));
+    this.store.add(this.indexManager.onDidChange(() => this.refresh()));
     this.store.add(this.config.onDidChangeDisplay(() => this.refresh()));
     // 切换 / 新开编辑器时也刷新：宿主的语言服务（如 Volar）可能在扩展激活后才把
     // .vue 的 languageId 从 plaintext 切到 vue，触发一次可见编辑器变化。
@@ -68,17 +68,20 @@ export class I18nTraceInlayHintsProvider implements vscode.InlayHintsProvider {
     if (!cfg.enabled || !cfg.inlayHints.enabled) {
       return [];
     }
+    if (!this.indexManager.getProjectFolder(document.uri)) {
+      return [];
+    }
     const adapter = this.adapters.forDocument(document);
     if (!adapter) {
       return [];
     }
 
-    const displayLocale = this.indexManager.resolveDisplayLocale();
+    const displayLocale = this.indexManager.resolveDisplayLocale(document.uri);
     const calls = adapter.extractCalls(document, range, {
       functionNames: cfg.translationFunctions,
     });
 
-    const index = this.indexManager.index;
+    const index = this.indexManager.getIndex(document.uri);
     const joiner = displayLocale && /^en/i.test(displayLocale) ? ' ' : '';
     const hints: vscode.InlayHint[] = [];
     for (const call of calls) {
@@ -116,7 +119,13 @@ export class I18nTraceInlayHintsProvider implements vscode.InlayHintsProvider {
 
       const tooltip =
         resolvedKeys.length === 1
-          ? this.buildTooltip(primaryKey, displayLocale, resolutions[0].candidates, missingLocales)
+          ? this.buildTooltip(
+              document.uri,
+              primaryKey,
+              displayLocale,
+              resolutions[0].candidates,
+              missingLocales,
+            )
           : new vscode.MarkdownString(
               resolvedKeys.map((k, i) => `\`${k}\`: ${escapeMd(okEntries[i].value)}`).join('\n\n') +
                 (missingLocales.length > 0
@@ -157,12 +166,13 @@ export class I18nTraceInlayHintsProvider implements vscode.InlayHintsProvider {
   }
 
   private buildTooltip(
+    resource: vscode.Uri,
     key: string,
     displayLocale: string | undefined,
     candidates: readonly string[],
     missingLocales: readonly string[] = [],
   ): vscode.MarkdownString {
-    const all = this.indexManager.index.getAllForKey(key);
+    const all = this.indexManager.getIndex(resource).getAllForKey(key);
     const md = new vscode.MarkdownString();
     md.appendMarkdown(`\`${key}\`\n\n`);
     if (all) {

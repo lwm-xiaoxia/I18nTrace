@@ -28,6 +28,7 @@ export class LocaleWatcher {
   ) {
     this.rebuildWatchers();
     this.store.add(this.config.onDidChangeStructural(() => this.rebuildWatchers()));
+    this.store.add(vscode.workspace.onDidChangeWorkspaceFolders(() => this.rebuildWatchers()));
 
     // 未保存的编辑：语言文件在编辑器中改动时也刷新
     this.store.add(

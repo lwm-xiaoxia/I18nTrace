@@ -4,6 +4,7 @@
 src/**
 out/**
 test-fixtures/**
+test-project-fixtures/**
 node_modules/**
 esbuild.js
 tsconfig*.json

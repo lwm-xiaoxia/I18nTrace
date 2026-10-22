@@ -41,6 +41,10 @@ export class ProjectScanner {
     for (const folder of folders) {
       const uris = await this.findInFolder(folder, config);
       for (const uri of uris) {
+        // 嵌套根目录只归最具体的项目，不能同时被外层根目录收录。
+        if (vscode.workspace.getWorkspaceFolder(uri)?.uri.toString() !== folder.uri.toString()) {
+          continue;
+        }
         const ext = path.extname(uri.fsPath).slice(1).toLowerCase();
         if (!this.parsers.supports(ext)) {
           continue;

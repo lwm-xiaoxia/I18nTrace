@@ -1,0 +1,1 @@
+t('app.mainDevice');
